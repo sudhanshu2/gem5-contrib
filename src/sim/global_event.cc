@@ -29,7 +29,10 @@
 
 #include "sim/global_event.hh"
 
+#include <chrono>
+
 #include "sim/cur_tick.hh"
+#include "sim/eventq.hh"
 
 namespace gem5
 {
@@ -144,7 +147,14 @@ void
 GlobalSyncEvent::BarrierEvent::process()
 {
     // wait for all queues to arrive at barrier, then process event
-    if (globalBarrier()) {
+    auto start = std::chrono::high_resolution_clock::now();
+    bool is_master = globalBarrier();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto diff =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+    curEventQueue()->stats->barrierExecutionTime.sample(diff.count());
+
+    if (is_master) {
         _globalEvent->process();
     }
 

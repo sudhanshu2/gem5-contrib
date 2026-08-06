@@ -36,6 +36,7 @@
 #define __SIM_EVENTQ_HH__
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <climits>
 #include <functional>
@@ -47,6 +48,8 @@
 #include "base/debug.hh"
 #include "base/flags.hh"
 #include "base/named.hh"
+#include "base/statistics.hh"
+#include "base/stats/group.hh"
 #include "base/trace.hh"
 #include "base/type_traits.hh"
 #include "base/types.hh"
@@ -621,6 +624,8 @@ class EventQueue
     Event *head;
     Tick _curTick;
 
+    uint64_t _num_events = 0;
+
     //! Mutex to protect async queue.
     FairUncontendedMutex async_queue_mutex;
 
@@ -662,6 +667,28 @@ class EventQueue
     EventQueue(const EventQueue &);
 
   public:
+    uint64_t _num_processed = 0;
+    uint64_t _prev_quanta_processed = 0;
+
+    struct EventQueueStats : public statistics::Group
+    {
+        EventQueueStats(statistics::Group *parent, const std::string &name);
+
+        statistics::Distribution size;
+        statistics::Scalar inserts;
+        statistics::Scalar asyncInserts;
+        statistics::Scalar removes;
+        statistics::Scalar processed;
+        statistics::Scalar reschedules;
+        statistics::Scalar deschedules;
+        statistics::Distribution eventProcessingTime;
+        statistics::Scalar globalInserts;
+        statistics::Scalar globalAsyncInserts;
+        statistics::Distribution globalEventProcessingTime;
+        statistics::Distribution barrierExecutionTime;
+    };
+    EventQueueStats *stats = nullptr;
+
     class ScopedMigration
     {
       public:
@@ -740,6 +767,14 @@ class EventQueue
      */
     EventQueue(const std::string &n);
 
+    void
+    initStats(statistics::Group *parent)
+    {
+        if (stats == nullptr) {
+            stats = new EventQueueStats(parent, name());
+        }
+    }
+
     /**
      * @ingroup api_eventq
      * @{
@@ -802,6 +837,7 @@ class EventQueue
             event->trace("descheduled");
 
         event->release();
+        stats->deschedules++;
     }
 
     /**
@@ -831,6 +867,7 @@ class EventQueue
 
         if (debug::Event)
             event->trace("rescheduled");
+        stats->reschedules++;
     }
 
     Tick nextTick() const { return head->when(); }

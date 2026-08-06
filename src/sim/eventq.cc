@@ -31,6 +31,7 @@
 #include "sim/eventq.hh"
 
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -38,6 +39,7 @@
 #include <vector>
 
 #include "base/logging.hh"
+#include "base/stats/group.hh"
 #include "base/trace.hh"
 #include "cpu/smt.hh"
 #include "debug/Checkpoint.hh"
@@ -240,13 +242,26 @@ EventQueue::serviceOne()
         head = head->nextBin;
     }
 
+    _num_events--;
+    stats->size.sample(_num_events);
     // handle action
     if (!event->squashed()) {
+        stats->processed++;
+        _num_processed++;
         // forward current cycle to the time when this event occurs.
         setCurTick(event->when());
         if (debug::Event)
             event->trace("executed");
+        auto start = std::chrono::high_resolution_clock::now();
         event->process();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto diff =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        if (event->globalEvent() == nullptr) {
+            stats->eventProcessingTime.sample(diff.count());
+        } else {
+            stats->globalEventProcessingTime.sample(diff.count());
+        }
         if (event->isExitEvent()) {
             assert(!event->flags.isSet(Event::Managed) ||
                    !event->flags.isSet(Event::IsMainQueue)); // would be silly
@@ -383,6 +398,19 @@ EventQueue::replaceHead(Event* s)
 {
     Event* t = head;
     head = s;
+
+    // Recalculate size
+    _num_events = 0;
+    Event *curr = head;
+    while (curr) {
+        Event *inBin = curr;
+        while (inBin) {
+            _num_events++;
+            inBin = inBin->nextInBin;
+        }
+        curr = curr->nextBin;
+    }
+
     return t;
 }
 
@@ -442,7 +470,7 @@ Event::dump() const
 }
 
 EventQueue::EventQueue(const std::string &n)
-    : objName(n), head(NULL), _curTick(0)
+    : objName(n), head(NULL), _curTick(0), _num_events(0)
 {
 }
 
@@ -462,10 +490,46 @@ EventQueue::handleAsyncInsertions()
 
     while (!async_queue.empty()) {
         insert(async_queue.front());
+        if (async_queue.front()->globalEvent() == nullptr) {
+            stats->asyncInserts++;
+        } else {
+            stats->globalAsyncInserts++;
+        }
         async_queue.pop_front();
     }
 
     async_queue_mutex.unlock();
+}
+
+EventQueue::EventQueueStats::EventQueueStats(statistics::Group *parent,
+                                             const std::string &name)
+    : statistics::Group(parent, name.c_str()),
+      ADD_STAT(size, statistics::units::Count::get(), "Event queue size"),
+      ADD_STAT(inserts, statistics::units::Count::get(), "Total inserts"),
+      ADD_STAT(asyncInserts, statistics::units::Count::get(),
+               "Total async inserts"),
+      ADD_STAT(removes, statistics::units::Count::get(), "Total removes"),
+      ADD_STAT(processed, statistics::units::Count::get(),
+               "Total processed events"),
+      ADD_STAT(reschedules, statistics::units::Count::get(),
+               "Total reschedules"),
+      ADD_STAT(deschedules, statistics::units::Count::get(),
+               "Total deschedules"),
+      ADD_STAT(eventProcessingTime, statistics::units::Count::get(),
+               "Processing time per event"),
+      ADD_STAT(globalInserts, statistics::units::Count::get(),
+               "Total global inserts"),
+      ADD_STAT(globalAsyncInserts, statistics::units::Count::get(),
+               "Total global async inserts"),
+      ADD_STAT(globalEventProcessingTime, statistics::units::Count::get(),
+               "Processing time per event"),
+      ADD_STAT(barrierExecutionTime, statistics::units::Count::get(),
+               "Executione time per barrier")
+{
+    size.init(0, 49, 10);
+    eventProcessingTime.init(0, 49999, 10000);
+    globalEventProcessingTime.init(0, 49999, 10000);
+    barrierExecutionTime.init(0, 29999, 5000);
 }
 
 } // namespace gem5
