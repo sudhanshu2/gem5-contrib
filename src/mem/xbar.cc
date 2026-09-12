@@ -188,6 +188,7 @@ template <typename SrcType, typename DstType>
 bool
 BaseXBar::Layer<SrcType, DstType>::tryTiming(SrcType* src_port)
 {
+    EventQueue::ScopedMigration migration(xbar.eventQueue());
     // if we are in the retry state, we will not see anything but the
     // retrying port (or in the case of the snoop ports the snoop
     // response port that mirrors the actual CPU-side port) as we leave
