@@ -64,6 +64,7 @@
 #include "params/BaseCache.hh"
 #include "params/WriteAllocator.hh"
 #include "sim/cur_tick.hh"
+#include "sim/eventq.hh"
 
 namespace gem5
 {
@@ -1987,7 +1988,15 @@ BaseCache::sendMSHRQueuePacket(MSHR* mshr)
         pkt->setSatisfied();
     }
 
-    if (!memSidePort.sendTimingReq(pkt)) {
+    bool success = false;
+    {
+        EventQueue::ScopedMigration migration(
+            memSidePort.getCache()->eventQueue()
+        );
+        success = memSidePort.sendTimingReq(pkt);
+    }
+
+    if (!success) {
         // we are awaiting a retry, but we
         // delete the packet and will be creating a new packet
         // when we get the opportunity

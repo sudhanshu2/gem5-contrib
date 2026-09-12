@@ -220,6 +220,13 @@ class PacketQueue : public Drainable
       */
     void disableSanityCheck() { _disableSanityCheck = true; }
 
+    /**
+     * Getter for event queue associated with this queue.
+     */
+    EventQueue* eventQueue() {
+      return em.eventQueue();
+    }
+
     DrainState drain() override;
 };
 
