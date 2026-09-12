@@ -247,6 +247,8 @@ class BaseCache : public ClockedObject
 
         MemSidePort(const std::string &_name, BaseCache *_cache,
                     const std::string &_label);
+
+        BaseCache* getCache() { return cache; };
     };
 
     /**

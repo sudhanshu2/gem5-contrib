@@ -65,6 +65,7 @@ PacketQueue::~PacketQueue()
 void
 PacketQueue::retry()
 {
+    EventQueue::ScopedMigration migration(eventQueue());
     DPRINTF(PacketQueue, "Queue %s received retry\n", name());
     assert(waitingOnRetry);
     waitingOnRetry = false;
@@ -106,6 +107,7 @@ PacketQueue::trySatisfyFunctional(PacketPtr pkt)
 void
 PacketQueue::schedSendTiming(PacketPtr pkt, Tick when)
 {
+    EventQueue::ScopedMigration migration(eventQueue());
     DPRINTF(PacketQueue, "%s for %s address %x size %d when %lu ord: %i\n",
             __func__, pkt->cmdString(), pkt->getAddr(), pkt->getSize(), when,
             forceOrder);
@@ -154,6 +156,7 @@ PacketQueue::schedSendTiming(PacketPtr pkt, Tick when)
 void
 PacketQueue::schedSendEvent(Tick when)
 {
+    EventQueue::ScopedMigration migration(eventQueue());
     // if we are waiting on a retry just hold off
     if (waitingOnRetry) {
         DPRINTF(PacketQueue, "Not scheduling send as waiting for retry\n");
