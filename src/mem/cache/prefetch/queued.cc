@@ -177,11 +177,21 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
     const CacheAccessor &cache = acc.cache;
 
     if (pfi.isCacheMiss()) {
-        DPRINTF(HWPrefetch, "Notify miss pc=%#x addr=%#x\n", pfi.getPC(),
+        if (pfi.hasPC()) {
+            DPRINTF(HWPrefetch, "Notify miss pc=%#x addr=%#x\n",
+                pfi.getPC(), pfi.getAddr());
+        } else {
+            DPRINTF(HWPrefetch, "Notify miss pc=Unknown addr=%#x\n",
                 pfi.getAddr());
+        }
     } else {
-        DPRINTF(HWPrefetch, "Notify hit pc=%#x addr=%#x\n", pfi.getPC(),
+        if (pfi.hasPC()) {
+            DPRINTF(HWPrefetch, "Notify hit pc=%#x addr=%#x\n",
+                pfi.getPC(), pfi.getAddr());
+        } else {
+            DPRINTF(HWPrefetch, "Notify hit pc=Unknown addr=%#x\n",
                 pfi.getAddr());
+        }
     }
 
     // Squash queued prefetches if demand miss to same line
