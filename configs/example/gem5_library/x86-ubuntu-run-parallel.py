@@ -36,16 +36,27 @@ scons build/X86/gem5.opt
 ```
 """
 
+import os
+
 from gem5.prebuilt.demo.x86_demo_parallel_board import X86DemoParallelBoard
-from gem5.resources.resource import obtain_resource
+from gem5.resources.resource import (
+    DiskImageResource,
+    KernelResource,
+)
 from gem5.simulate.simulator import Simulator
 
 board = X86DemoParallelBoard()
 
-workload = obtain_resource(
-    "x86-ubuntu-24.04-boot-with-systemd", resource_version="5.0.0"
+resource_dir = os.path.expanduser("~/.cache/gem5")
+board.set_kernel_disk_workload(
+    kernel=KernelResource(
+        os.path.join(resource_dir, "x86-linux-kernel-6.8.0-52-generic-1.0.0")
+    ),
+    disk_image=DiskImageResource(
+        os.path.join(resource_dir, "x86-ubuntu-24.04-img-4.0.0"),
+        root_partition="2",
+    ),
 )
-board.set_workload(workload)
 
 simulator = Simulator(board=board)
 

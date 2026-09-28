@@ -55,7 +55,7 @@ class X86DemoParallelBoard(X86Board):
 
         memory = DualChannelDDR4_2400("4GiB")
         processor = SimpleProcessor(
-            cpu_type=CPUTypes.TIMING,
+            cpu_type=CPUTypes.ATOMIC,
             isa=ISA.X86,
             num_cores=2,
             clk_freq="3GHz",
