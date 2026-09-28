@@ -2692,6 +2692,7 @@ CpuSidePort::CpuSidePort(const std::string &_name, BaseCache& _cache,
 bool
 BaseCache::MemSidePort::recvTimingResp(PacketPtr pkt)
 {
+    EventQueue::ScopedMigration migration(cache->eventQueue());
     cache->recvTimingResp(pkt);
     return true;
 }
