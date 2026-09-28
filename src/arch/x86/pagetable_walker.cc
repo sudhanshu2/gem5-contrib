@@ -104,6 +104,7 @@ Walker::startFunctional(ThreadContext * _tc, Addr &addr, unsigned &logBytes,
 bool
 Walker::WalkerPort::recvTimingResp(PacketPtr pkt)
 {
+    EventQueue::ScopedMigration migration(walker->eventQueue());
     return walker->recvTimingResp(pkt);
 }
 
@@ -138,6 +139,7 @@ Walker::recvTimingResp(PacketPtr pkt)
 void
 Walker::WalkerPort::recvReqRetry()
 {
+    EventQueue::ScopedMigration migration(walker->eventQueue());
     walker->recvReqRetry();
 }
 
