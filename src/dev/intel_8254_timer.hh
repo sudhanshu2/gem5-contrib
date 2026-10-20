@@ -165,6 +165,13 @@ class Intel8254Timer : public EventManager
 
         unsigned int index() const { return num; }
 
+        /** The event that fires when the count expires */
+        const Event &
+        getEvent() const
+        {
+            return event;
+        }
+
         /** Latch the current count (if one is not already latched) */
         void latchCount();
 
@@ -235,6 +242,7 @@ class Intel8254Timer : public EventManager
     uint8_t
     readCounter(unsigned int num)
     {
+        EventQueue::ScopedMigration migrate(eventQueue());
         assert(num < 3);
         return counters[num].read();
     }
@@ -242,6 +250,7 @@ class Intel8254Timer : public EventManager
     void
     writeCounter(unsigned int num, const uint8_t data)
     {
+        EventQueue::ScopedMigration migrate(eventQueue());
         assert(num < 3);
         counters[num].write(data);
     }
@@ -251,6 +260,14 @@ class Intel8254Timer : public EventManager
     {
         assert(num < 3);
         return counters[num].outputHigh();
+    }
+
+    /** Return event for a specific counter */
+    const Event &
+    counterEvent(unsigned int num) const
+    {
+        assert(num < 3);
+        return counters[num].getEvent();
     }
 
     /**
