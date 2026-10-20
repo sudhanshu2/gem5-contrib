@@ -103,3 +103,6 @@ SimObject(
     tags=['x86 isa']
 )
 Source('qemu_fw_cfg.cc', tags=['x86 isa'])
+
+GTest('i8254_parallel.test', 'i8254_parallel.test.cc', '../../base/date.cc',
+      with_tag('gem5 lib') & without_tag('main'), skip_lib=True)
