@@ -363,6 +363,10 @@ class TimingSimpleCPU : public BaseSimpleCPU
         SimpleExecContext& t_info = *threadInfo[curThread];
         SimpleThread* thread = t_info.thread;
 
+        if (t_info.thread->status() != ThreadContext::Active) {
+            return true;
+        }
+
         return thread->pcState().microPC() == 0 && !t_info.stayAtPC &&
                !fetchEvent.scheduled();
     }
