@@ -599,6 +599,13 @@ operator!=(const Event &l, const Event &r)
  * events must happen at least one simulation quantum into the future,
  * otherwise they risk being scheduled in the past by
  * handleAsyncInsertions().
+ *
+ * In parallel mode, Python events and asynchronous requests (signals,
+ * I/O, stat requests) run on the control thread, which does not own a
+ * main event queue. It only runs while every simulation thread is parked
+ * at a quantum barrier, and inParallelMode is false while it runs, so it
+ * may schedule and deschedule events on any queue directly. See
+ * sim/control_queue.hh.
  */
 class EventQueue
 {

@@ -251,6 +251,17 @@ class GlobalSyncEvent : public BaseGlobalEventTemplate<GlobalSyncEvent>
     const char *description() const;
 
     Tick repeat;
+
+    /**
+     * A function called at the end of every process(), while all
+     * simulation threads are parked at the barrier, with the current
+     * tick. Used by the parallel control relay (sim/control_queue.hh).
+     */
+    using QuantumHook = void (*)(Tick now);
+    static void setQuantumHook(QuantumHook hook);
+
+  private:
+    static QuantumHook quantumHook;
 };
 
 } // namespace gem5

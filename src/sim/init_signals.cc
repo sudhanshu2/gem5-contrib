@@ -146,6 +146,9 @@ dumprstStatsHandler(int sigtype)
 void
 exitNowHandler(int sigtype)
 {
+    if (async_exit) {
+        async_abort = true;
+    }
     async_event = true;
     async_exit = true;
     /* Wake up some event queue to handle event */

@@ -48,6 +48,10 @@ extern volatile bool async_exit;        ///< Async request to exit simulator.
 extern volatile bool async_io;          ///< Async I/O request (SIGIO).
 extern volatile bool async_exception;   ///< Python exception.
 extern volatile bool async_hypercall;
+/// A second user interrupt arrived before the first was handled. In
+/// parallel mode the control thread then dumps the event queues and
+/// aborts, since the simulation is not reaching a quantum barrier.
+extern volatile bool async_abort;
 //@}
 
 

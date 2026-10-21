@@ -78,6 +78,13 @@ Tick get_max_tick();
  */
 void terminateEventQueueThreads();
 
+/**
+ * Handle pending asynchronous requests (stat dump/reset, I/O, user
+ * interrupt, hypercalls) flagged by signal handlers.
+ * @return True if a Python exception was flagged.
+ */
+bool serviceAsyncEvents();
+
 extern GlobalSimLoopExitEvent *simulate_limit_event;
 
 } // namespace gem5

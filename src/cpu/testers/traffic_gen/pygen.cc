@@ -62,6 +62,10 @@ PyTrafficGen::start(pybind11::object meta_generator)
 std::shared_ptr<BaseGen>
 PyTrafficGen::nextGenerator()
 {
+    // Called from the traffic generator's events, which can run on a
+    // worker thread that does not hold the GIL.
+    py::gil_scoped_acquire gil;
+
     if (!metaGenerator)
         return std::shared_ptr<BaseGen>();
 

@@ -42,8 +42,9 @@
 
 #include "sim/simulate.hh"
 
-#include <atomic>
 #include <barrier>
+#include <csignal>
+#include <stop_token>
 #include <thread>
 
 #include "base/logging.hh"
@@ -52,6 +53,7 @@
 #include "base/types.hh"
 #include "debug/EnteringEventQueue.hh"
 #include "sim/async.hh"
+#include "sim/control_queue.hh"
 #include "sim/eventq.hh"
 #include "sim/init_signals.hh"
 #include "sim/sim_events.hh"
@@ -73,10 +75,13 @@ class SimulatorThreads
     SimulatorThreads(const SimulatorThreads &) = delete;
     SimulatorThreads &operator=(SimulatorThreads &) = delete;
 
+    /**
+     * One worker thread runs each event queue, including queue 0. The
+     * main thread (the one running Python) is an extra participant in
+     * the barrier, so it counts num_queues + 1.
+     */
     SimulatorThreads(uint32_t num_queues)
-        : terminate(false),
-          numQueues(num_queues),
-          barrier(num_queues)
+        : numQueues(num_queues), barrier(num_queues + 1)
     {
         threads.reserve(num_queues);
     }
@@ -84,7 +89,7 @@ class SimulatorThreads
     ~SimulatorThreads()
     {
         // This should only happen after exit has been
-        // called. Subordinate event queues should normally (assuming
+        // called. The worker threads should normally (assuming
         // exit is called from Python) be waiting on the barrier when
         // this happens.
         //
@@ -93,79 +98,107 @@ class SimulatorThreads
         terminateThreads();
     }
 
-    void runUntilLocalExit()
+    /**
+     * Run all event queues until they exit the simulation loop and
+     * return the event that made queue 0 exit. Called from the main
+     * thread, which acts as the control thread while the workers
+     * simulate (see sim/control_queue.hh).
+     */
+    Event *
+    runUntilLocalExit()
     {
-        assert(!terminate);
-
-        // Start subordinate threads if needed.
+        // Start the worker threads if needed.
         if (threads.empty()) {
-            // the main thread (the one running Python) handles queue 0,
-            // so we only need to allocate new threads for queues 1..N-1.
-            // We'll call these the "subordinate" threads.
-            for (uint32_t i = 1; i < numQueues; i++) {
-                threads.emplace_back(
-                    [this](EventQueue *eq) {
-                        thread_main(eq);
-                    }, mainEventQueue[i]);
+            // The workers inherit this thread's signal mask. Block the
+            // signals gem5 handles so they are delivered to this thread,
+            // the control thread, even if the workers are stuck.
+            sigset_t blocked, old;
+            sigemptyset(&blocked);
+            for (int sig : {SIGINT, SIGIO, SIGUSR1, SIGUSR2, SIGCONT}) {
+                sigaddset(&blocked, sig);
             }
+            pthread_sigmask(SIG_BLOCK, &blocked, &old);
+
+            for (uint32_t i = 0; i < numQueues; i++) {
+                threads.emplace_back(
+                    [this](std::stop_token stop, EventQueue *eq) {
+                        thread_main(stop, eq);
+                    },
+                    mainEventQueue[i]);
+            }
+
+            pthread_sigmask(SIG_SETMASK, &old, nullptr);
         }
 
-        // This method is called from the main thread. All subordinate
-        // threads should be waiting on the barrier when the function
-        // is called. The arrival of the main thread here will satisfy
-        // the barrier and start another iteration in the thread loop.
+        control::begin(numQueues);
+
+        // All workers are waiting at the barrier. Arriving here starts
+        // another iteration of their loop.
         barrier.arrive_and_wait();
+
+        // Handle control work until every queue has left its
+        // simulation loop.
+        control::serveUntilDone();
+
+        return exitEvent;
     }
 
     void
     terminateThreads()
     {
-        assert(!terminate);
         if (threads.empty())
             return;
 
         /* This function should only be called when the simulator is
          * handling a global exit event (typically from Python). This
-         * means that the helper threads will be waiting on the
-         * barrier. Tell the helper threads to exit and release them from
-         * their barrier. */
-        terminate = true;
+         * means that the worker threads will be waiting on the
+         * barrier. A stop request does not wake a thread blocked on
+         * the barrier, so release them from it as well. */
+        for (auto &t : threads) {
+            t.request_stop();
+        }
         barrier.arrive_and_wait();
 
-        /* Wait for all of the threads to terminate */
-        for (auto &t : threads) {
-            t.join();
-        }
-
-        terminate = false;
+        /* Destroying a jthread joins it. */
         threads.clear();
     }
 
   protected:
     /**
-     * The main function for all subordinate threads (i.e., all threads
-     * other than the main thread).  These threads start by waiting on
-     * threadBarrier.  Once all threads have arrived at threadBarrier,
-     * they enter the simulation loop concurrently.  When they exit the
-     * loop, they return to waiting on threadBarrier.  This process is
-     * repeated until the simulation terminates.
+     * The main function for all worker threads.  These threads wait on
+     * the barrier until the main thread arrives, then run their event
+     * queue concurrently.  When they exit the loop, they tell the main
+     * thread and wait on the barrier for the next round.  This repeats
+     * until the main thread requests a stop.
      */
     void
-    thread_main(EventQueue *queue)
+    thread_main(std::stop_token stop, EventQueue *queue)
     {
-        /* Wait for all initialisation to complete */
-        barrier.arrive_and_wait();
-
-        while (!terminate) {
-            doSimLoop(queue);
+        while (true) {
             barrier.arrive_and_wait();
+            if (stop.stop_requested()) {
+                return;
+            }
+
+            Event *event = doSimLoop(queue);
+            if (queue == mainEventQueue[0]) {
+                // Fail here rather than at the next barrier; the main
+                // thread would otherwise wait for this thread forever.
+                panic_if(!event, "Event queue 0 left the simulation "
+                                 "loop without an exit event.");
+                exitEvent = event;
+            }
+
+            control::workerDone();
         }
     }
 
-    std::atomic<bool> terminate;
     uint32_t numQueues;
-    std::vector<std::thread> threads;
+    std::vector<std::jthread> threads;
     std::barrier<> barrier;
+
+    /** The event that made queue 0 exit, read by the main thread. */
+    Event *exitEvent = nullptr;
 };
 
 static std::unique_ptr<SimulatorThreads> simulatorThreads;
@@ -236,14 +269,27 @@ simulate(Tick num_cycles)
         inParallelMode = true;
     }
 
-    simulatorThreads->runUntilLocalExit();
-    Event *local_event = doSimLoop(mainEventQueue[0]);
+    Event *local_event;
+    if (numMainEventQueues > 1) {
+        local_event = simulatorThreads->runUntilLocalExit();
+        // The workers own the queues while they run. Make sure the
+        // main thread sees queue 0's time when it returns to Python.
+        curEventQueue(mainEventQueue[0]);
+    } else {
+        local_event = doSimLoop(mainEventQueue[0]);
+    }
     assert(local_event);
 
     // Restore normal ctrl-c operation as soon as the event queue is done
     restoreSigInt();
 
     inParallelMode = false;
+
+    // Finish control work and hand Python events back to event queue 0.
+    // This rethrows an exception raised by control work.
+    if (numMainEventQueues > 1) {
+        control::end();
+    }
 
     // locate the global exit event and return it to Python
     BaseGlobalEvent *global_event = local_event->globalEvent();
@@ -286,11 +332,49 @@ terminateEventQueueThreads()
     simulatorThreads->terminateThreads();
 }
 
+/**
+ * Handle the asynchronous requests flagged by signal handlers (stat
+ * dump/reset, I/O, user interrupt and hypercalls). Run by event queue 0
+ * in serial mode, and by the control thread with every simulation thread
+ * parked in parallel mode.
+ * @return True if a Python exception was flagged.
+ */
+bool
+serviceAsyncEvents()
+{
+    async_event = false;
+    if (async_statdump || async_statreset) {
+        statistics::schedStatEvent(async_statdump, async_statreset);
+        async_statdump = false;
+        async_statreset = false;
+    }
+
+    if (async_io) {
+        async_io = false;
+        pollQueue.service();
+    }
+
+    if (async_exit) {
+        async_exit = false;
+        async_abort = false;
+        exitSimulationLoopClassic("user interrupt received");
+    }
+
+    if (async_exception) {
+        async_exception = false;
+        return true;
+    }
+    if (async_hypercall) {
+        async_hypercall = false;
+        processExternalSignal();
+    }
+    return false;
+}
 
 /**
  * The main per-thread simulation loop. This loop is executed by all
- * simulation threads (the main thread and the subordinate threads) in
- * parallel.
+ * simulation threads in parallel. In serial mode, the main thread runs
+ * it for the only event queue.
  */
 Event *
 doSimLoop(EventQueue *eventq)
@@ -308,34 +392,14 @@ doSimLoop(EventQueue *eventq)
         assert(curTick() <= eventq->nextTick() &&
                "event scheduled in the past");
 
-        if (mainQueue && async_event) {
-            async_event = false;
+        // In parallel mode the control thread handles asynchronous
+        // requests while all queues are parked (see control_queue.hh).
+        if (mainQueue && async_event && !inParallelMode) {
             // Take the event queue lock in case any of the service
             // routines want to schedule new events.
             std::lock_guard<EventQueue> lock(*eventq);
-            if (async_statdump || async_statreset) {
-                statistics::schedStatEvent(async_statdump, async_statreset);
-                async_statdump = false;
-                async_statreset = false;
-            }
-
-            if (async_io) {
-                async_io = false;
-                pollQueue.service();
-            }
-
-            if (async_exit) {
-                async_exit = false;
-                exitSimulationLoopClassic("user interrupt received");
-            }
-
-            if (async_exception) {
-                async_exception = false;
+            if (serviceAsyncEvents()) {
                 return NULL;
-            }
-            if (async_hypercall) {
-                async_hypercall = false;
-                processExternalSignal();
             }
         }
 

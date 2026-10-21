@@ -43,9 +43,12 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "base/logging.hh"
+#include "sim/control_queue.hh"
 #include "sim/eventq.hh"
 #include "sim/sim_events.hh"
 #include "sim/sim_exit.hh"
@@ -55,6 +58,19 @@ namespace py = pybind11;
 
 namespace gem5
 {
+
+namespace
+{
+
+/**
+ * The queue each scheduled Python event is on. In parallel mode, Python
+ * events aimed at event queue 0 live on the control queue while a
+ * simulation runs (see sim/control_queue.hh). Only accessed with the GIL
+ * held.
+ */
+std::unordered_map<Event *, EventQueue *> pyEventQueues;
+
+} // anonymous namespace
 
 /**
  * PyBind wrapper for Events
@@ -81,7 +97,10 @@ class PyEvent : public Event
     }
 
   protected:
+    // These can run on an event queue's worker thread (schedule,
+    // deschedule and serviceOne), which does not hold the GIL.
     void acquireImpl() override {
+        py::gil_scoped_acquire gil;
         py::object obj = py::cast(this);
 
         if (obj) {
@@ -92,6 +111,10 @@ class PyEvent : public Event
     }
 
     void releaseImpl() override {
+        py::gil_scoped_acquire gil;
+        if (!scheduled()) {
+            pyEventQueues.erase(this);
+        }
         py::object obj = py::cast(this);
 
         if (obj) {
@@ -102,13 +125,56 @@ class PyEvent : public Event
     }
 };
 
+namespace
+{
+
+/** Move the Python events on `from` to `to`, keeping their times. */
+void
+movePyEvents(EventQueue *from, EventQueue *to)
+{
+    py::gil_scoped_acquire gil;
+
+    std::vector<PyEvent *> events;
+    for (auto &[event, queue] : pyEventQueues) {
+        if (queue == from && event->scheduled()) {
+            events.push_back(static_cast<PyEvent *>(event));
+        }
+    }
+
+    for (PyEvent *event : events) {
+        // Descheduling drops the queue's reference to the Python object;
+        // hold one until the event is on the new queue.
+        py::object keep = py::cast(event);
+        Tick when = event->when();
+        from->deschedule(event);
+        to->schedule(event, when);
+        pyEventQueues[event] = to;
+    }
+}
+
+} // anonymous namespace
+
 void
 pybind_init_event(py::module_ &m_native)
 {
+    control::setEventMover(&movePyEvents);
+
     py::module_ m = m_native.def_submodule("event");
 
-    m.def("simulate", &simulate,
-          py::arg("ticks") = MaxTick);
+    m.def(
+        "simulate",
+        [](Tick ticks) {
+            // In parallel mode every event queue, including queue 0,
+            // runs on its own worker thread while this thread waits.
+            // Release the GIL so Python callbacks from those threads
+            // (PyEvents, stat dumps) can run.
+            if (numMainEventQueues > 1) {
+                py::gil_scoped_release release;
+                return simulate(ticks);
+            }
+            return simulate(ticks);
+        },
+        py::arg("ticks") = MaxTick);
     m.def("setMaxTick", &set_max_tick, py::arg("tick"));
     m.def("getMaxTick", &get_max_tick, py::return_value_policy::copy);
     m.def("terminateEventQueueThreads", &terminateEventQueueThreads);
@@ -205,16 +271,34 @@ pybind_init_event(py::module_ &m_native)
     exit_hypercall.export_values();
 
     py::class_<EventQueue>(m, "EventQueue")
-        .def("name",  [](EventQueue *eq) { return eq->name(); })
+        .def("name", [](EventQueue *eq) { return eq->name(); })
         .def("dump", &EventQueue::dump)
-        .def("schedule", [](EventQueue *eq, PyEvent *e, Tick t) {
-                eq->schedule(e, t);
-            }, py::arg("event"), py::arg("when"))
-        .def("deschedule", &EventQueue::deschedule,
-             py::arg("event"))
-        .def("reschedule", &EventQueue::reschedule,
-             py::arg("event"), py::arg("tick"), py::arg("always") = false)
-        ;
+        .def(
+            "schedule",
+            [](EventQueue *eq, PyEvent *e, Tick t) {
+                EventQueue *q = control::targetQueue(eq);
+                q->schedule(e, t);
+                pyEventQueues[e] = q;
+            },
+            py::arg("event"), py::arg("when"))
+        .def(
+            "deschedule",
+            [](EventQueue *eq, PyEvent *e) {
+                auto it = pyEventQueues.find(e);
+                (it != pyEventQueues.end() ? it->second : eq)->deschedule(e);
+            },
+            py::arg("event"))
+        .def(
+            "reschedule",
+            [](EventQueue *eq, PyEvent *e, Tick t, bool always) {
+                auto it = pyEventQueues.find(e);
+                EventQueue *q = e->scheduled() && it != pyEventQueues.end()
+                                    ? it->second
+                                    : control::targetQueue(eq);
+                q->reschedule(e, t, always);
+                pyEventQueues[e] = q;
+            },
+            py::arg("event"), py::arg("tick"), py::arg("always") = false);
 
     // TODO: Ownership of global exit events has always been a bit
     // questionable. We currently assume they are owned by the C++

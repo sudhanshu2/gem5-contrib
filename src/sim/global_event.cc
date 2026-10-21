@@ -161,6 +161,20 @@ GlobalSyncEvent::process()
             mainEventQueue[i]->setNextSimQuantum(next_sim_quantum);
         }
     }
+
+    // Every simulation thread is parked at this barrier, so this is where
+    // the control thread gets to run (see sim/control_queue.hh).
+    if (quantumHook) {
+        quantumHook(curTick());
+    }
+}
+
+GlobalSyncEvent::QuantumHook GlobalSyncEvent::quantumHook = nullptr;
+
+void
+GlobalSyncEvent::setQuantumHook(QuantumHook hook)
+{
+    quantumHook = hook;
 }
 
 const char *
