@@ -41,6 +41,7 @@
 #include "mem/ruby/common/Consumer.hh"
 
 #include <cassert>
+#include <list>
 
 #include "base/logging.hh"
 
@@ -50,11 +51,34 @@ namespace gem5
 namespace ruby
 {
 
+std::list<Consumer *> &
+rubyConsumers()
+{
+    static std::list<Consumer *> consumers;
+    return consumers;
+}
+
 Consumer::Consumer(ClockedObject *_em, Event::Priority ev_prio)
     : m_wakeup_event([this]{ processCurrentEvent(); },
                     "Consumer Event", false, ev_prio),
       em(_em)
-{ }
+{
+    rubyConsumers().push_back(this);
+}
+
+Consumer::~Consumer()
+{
+    rubyConsumers().remove(this);
+}
+
+void
+Consumer::clearWakeup()
+{
+    panic_if(m_wakeup_event.scheduled(),
+             "Clearing the wakeup of a consumer whose wakeup event is still "
+             "scheduled");
+    m_wakeup_ticks.clear();
+}
 
 void
 Consumer::scheduleEvent(Cycles time_delta)
