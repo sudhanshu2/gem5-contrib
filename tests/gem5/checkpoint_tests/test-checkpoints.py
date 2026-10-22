@@ -162,6 +162,55 @@ gem5_verify_config(
     length=constants.quick_tag,
 )
 
+# Parallel versions of the X86 tests: a Ruby MESI_Three_Level hierarchy with
+# each core, and its private L1 and L2 controllers, on its own event queue.
+# Each restore test restores the checkpoint written by the matching save
+# test, so the save test must run first.
+
+gem5_verify_config(
+    name="test-checkpoint-x86-fs-parallel-save-checkpoint",
+    fixtures=(),
+    verifiers=(save_checkpoint_verifier,),
+    config=joinpath(
+        config.base_dir,
+        "tests",
+        "gem5",
+        "checkpoint_tests",
+        "configs",
+        "x86-fs-parallel-save-checkpoint.py",
+    ),
+    config_args=[
+        "--checkpoint-path",
+        joinpath(resource_path, "x86-fs-parallel-test-checkpoint"),
+    ],
+    valid_isas=(constants.all_compiled_tag,),
+    valid_variants=(constants.debug_tag,),
+    valid_hosts=constants.supported_hosts,
+    length=constants.quick_tag,
+)
+
+gem5_verify_config(
+    name="test-checkpoint-x86-fs-parallel-restore-checkpoint",
+    fixtures=(),
+    verifiers=(),
+    config=joinpath(
+        config.base_dir,
+        "tests",
+        "gem5",
+        "checkpoint_tests",
+        "configs",
+        "x86-fs-parallel-restore-checkpoint.py",
+    ),
+    config_args=[
+        "--checkpoint-path",
+        joinpath(resource_path, "x86-fs-parallel-test-checkpoint"),
+    ],
+    valid_isas=(constants.all_compiled_tag,),
+    valid_variants=(constants.debug_tag,),
+    valid_hosts=constants.supported_hosts,
+    length=constants.quick_tag,
+)
+
 gem5_verify_config(
     name="test-checkpoint-power-hello-save-checkpoint",
     fixtures=(),
