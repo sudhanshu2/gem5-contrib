@@ -1,0 +1,144 @@
+# Copyright (c) 2026 ARCANA Research Group (University of Illinois Urbana-Champaign)
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met: redistributions of source code must retain the above copyright
+# notice, this list of conditions and the following disclaimer;
+# redistributions in binary form must reproduce the above copyright
+# notice, this list of conditions and the following disclaimer in the
+# documentation and/or other materials provided with the distribution;
+# neither the name of the copyright holders nor the names of its
+# contributors may be used to endorse or promote products derived from
+# this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+This gem5 test script is a parallel version of
+tests/gem5/checkpoint_tests/configs/x86-fs-save-checkpoint.py. It uses a
+Ruby MESI_Three_Level cache hierarchy and runs each core on its own event
+queue. It runs the first 10^6 ticks of an x86 full system kernel disk
+workload and saves a checkpoint, which flushes the Ruby caches across
+event queues.
+"""
+
+import argparse
+
+from gem5.coherence_protocol import CoherenceProtocol
+from gem5.components.boards.x86_board import X86Board
+from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
+    MESIThreeLevelCacheHierarchy,
+)
+from gem5.components.memory import SingleChannelDDR3_1600
+from gem5.components.processors.cpu_types import CPUTypes
+from gem5.components.processors.simple_processor import SimpleProcessor
+from gem5.isas import ISA
+from gem5.resources.resource import obtain_resource
+from gem5.simulate.simulator import Simulator
+from gem5.utils.requires import requires
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--checkpoint-path",
+    type=str,
+    required=False,
+    default="x86-fs-parallel-test-checkpoint/",
+    help="The directory to store the checkpoint.",
+)
+
+parser.add_argument(
+    "--sim-quantum",
+    type=int,
+    required=False,
+    default=1000,
+    help="The simulation quantum in ticks.",
+)
+
+args = parser.parse_args()
+
+# Run a check to ensure the right version of gem5 is being used.
+requires(
+    isa_required=ISA.X86,
+    coherence_protocol_required=CoherenceProtocol.MESI_THREE_LEVEL,
+)
+
+
+class ParallelX86Board(X86Board):
+    """X86Board with each core, and its private Ruby L1 (with its sequencer)
+    and L2 controllers, on its own event queue (1..N). Everything else,
+    including the shared L3 and the directory, stays on queue 0."""
+
+    def _pre_instantiate(self, full_system=None):
+        root = super()._pre_instantiate(full_system)
+        cores = self.get_processor().get_cores()
+        cache_hierarchy = self.get_cache_hierarchy()
+        for i, core in enumerate(cores):
+            core.get_simobject().eventq_index = i + 1
+        for i, controller in enumerate(cache_hierarchy._l1_controllers):
+            controller.eventq_index = i + 1
+        for i, controller in enumerate(cache_hierarchy._l2_controllers):
+            controller.eventq_index = i + 1
+        root.sim_quantum = args.sim_quantum
+        return root
+
+
+# Setup the cache hierarchy.
+cache_hierarchy = MESIThreeLevelCacheHierarchy(
+    l1d_size="32KiB",
+    l1d_assoc=8,
+    l1i_size="32KiB",
+    l1i_assoc=8,
+    l2_size="512KiB",
+    l2_assoc=16,
+    l3_size="2MiB",
+    l3_assoc=16,
+    num_l3_banks=8,
+)
+
+# Setup the system memory.
+memory = SingleChannelDDR3_1600(size="1GiB")
+
+# Setup an 8 core Processor.
+processor = SimpleProcessor(
+    cpu_type=CPUTypes.O3, isa=ISA.X86, num_cores=8, clk_freq="3GHz"
+)
+
+# Setup the board.
+board = ParallelX86Board(
+    clk_freq="3GHz",
+    processor=processor,
+    memory=memory,
+    cache_hierarchy=cache_hierarchy,
+)
+
+# Set the Full System workload.
+board.set_kernel_disk_workload(
+    kernel=obtain_resource("x86-linux-kernel-5.4.49"),
+    disk_image=obtain_resource("x86-ubuntu-18.04-img"),
+)
+
+sim = Simulator(board=board, full_system=True, max_ticks=10**6)
+print("Beginning simulation!")
+
+
+sim.run()
+print(
+    "Exiting @ tick {} because {}.".format(
+        sim.get_current_tick(), sim.get_last_exit_event_cause()
+    )
+)
+print("Taking checkpoint at", args.checkpoint_path)
+sim.save_checkpoint(args.checkpoint_path)
+print("Done taking checkpoint")
