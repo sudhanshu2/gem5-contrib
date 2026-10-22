@@ -45,6 +45,7 @@
 
 #include <cstdio>
 #include <list>
+#include <vector>
 
 #include "base/compiler.hh"
 #include "base/intmath.hh"
@@ -234,53 +235,90 @@ RubySystem::memWriteback()
     DPRINTF(RubyCacheTrace, "Cache Trace Complete\n");
 
     // If there is no dirty block, we don't need to flush the cache
-    if (m_cache_recorder->getNumRecords() == 0)
-    {
+    if (m_cache_recorder->getNumRecords() == 0) {
         m_cooldown_enabled = false;
         return;
     }
 
+    // In parallel mode, Ruby controllers, sequencers and CPUs can be on any
+    // of the main event queues, so the flush has to set aside the events of
+    // every queue, not only this object's queue.
+
+    // Save current event queue
+    EventQueue *orig_eventq = curEventQueue();
     // save the current tick value
     Tick curtick_original = curTick();
-    DPRINTF(RubyCacheTrace, "Recording current tick %ld\n", curtick_original);
+    DPRINTF(RubyCacheTrace, "Recording current tick %ld for queue %s\n",
+            curtick_original, orig_eventq->name());
+    // Deschedule all prior events on every event queue, but record the tick
+    // they were scheduled at so they can be restored correctly later.
+    std::vector<std::list<std::pair<Event *, Tick>>> original_events;
 
-    // Deschedule all prior events on the event queue, but record the tick they
-    // were scheduled at so they can be restored correctly later.
-    std::list<std::pair<Event*, Tick> > original_events;
-    while (!eventq->empty()) {
-        Event *curr_head = eventq->getHead();
-        if (curr_head->isAutoDelete()) {
-            DPRINTF(RubyCacheTrace, "Event %s auto-deletes when descheduled,"
-                    " not recording\n", curr_head->name());
-        } else {
-            original_events.push_back(
+    for (uint32_t i = 0; i < numMainEventQueues; ++i) {
+        EventQueue *curr_eventq = mainEventQueue[i];
+        curr_eventq->lock();
+        curEventQueue(curr_eventq);
+        curr_eventq->handleAsyncInsertions();
+
+        DPRINTF(RubyCacheTrace, "Checking current tick %ld for queue %s\n",
+                curr_eventq->getCurTick(), curr_eventq->name());
+        gem5_assert(curr_eventq->getCurTick() == curtick_original);
+
+        original_events.emplace_back();
+        while (!curr_eventq->empty()) {
+            Event *curr_head = curr_eventq->getHead();
+            if (curr_head->isAutoDelete()) {
+                DPRINTF(RubyCacheTrace,
+                        "Event %s on queue %s auto-deletes when "
+                        "descheduled, not recording\n",
+                        curr_head->name(), curr_eventq->name());
+            } else {
+                original_events.back().push_back(
                     std::make_pair(curr_head, curr_head->when()));
+            }
+            curr_eventq->deschedule(curr_head);
         }
-        eventq->deschedule(curr_head);
+        curr_eventq->unlock();
     }
 
-    // Schedule an event to start cache cooldown
+    // Restore original event queue
+    curEventQueue(orig_eventq);
+
+    // Schedule an event to start cache cooldown at the next simulation
+    // quantum boundary, where every event queue is synchronized. Each
+    // completed flush request then issues the next one.
     DPRINTF(RubyCacheTrace, "Starting cache flush\n");
-    enqueueRubyEvent(curTick());
+    enqueueRubyEvent(curTick() + simQuantum);
     simulate();
     DPRINTF(RubyCacheTrace, "Cache flush complete\n");
 
-    // Deschedule any events left on the event queue.
-    while (!eventq->empty()) {
-        eventq->deschedule(eventq->getHead());
+    // Deschedule any events left on any event queue and restore their ticks
+    for (uint32_t i = 0; i < numMainEventQueues; ++i) {
+        EventQueue *curr_eventq = mainEventQueue[i];
+        curr_eventq->lock();
+        curEventQueue(curr_eventq);
+        curr_eventq->handleAsyncInsertions(); // <- this is risky
+        while (!curr_eventq->empty()) {
+            curr_eventq->deschedule(curr_eventq->getHead());
+        }
+
+        // Restore curTick
+        curr_eventq->setCurTick(curtick_original);
+
+        // Restore all events that were originally on the event queue. This is
+        // done after setting curTick back to its original value so that events
+        // do not seem to be scheduled in the past.
+        while (!original_events[i].empty()) {
+            std::pair<Event *, Tick> event = original_events[i].back();
+            curr_eventq->schedule(event.first, event.second);
+            original_events[i].pop_back();
+        }
+
+        curr_eventq->unlock();
     }
 
-    // Restore curTick
-    setCurTick(curtick_original);
-
-    // Restore all events that were originally on the event queue.  This is
-    // done after setting curTick back to its original value so that events do
-    // not seem to be scheduled in the past.
-    while (!original_events.empty()) {
-        std::pair<Event*, Tick> event = original_events.back();
-        eventq->schedule(event.first, event.second);
-        original_events.pop_back();
-    }
+    // Restore original event queue
+    curEventQueue(orig_eventq);
 
     // No longer flushing back to memory.
     m_cooldown_enabled = false;
@@ -455,13 +493,30 @@ RubySystem::startup()
         DPRINTF(RubyCacheTrace, "Starting ruby cache warmup\n");
         // save the current tick value
         Tick curtick_original = curTick();
-        // save the event queue head
-        Event* eventq_head = eventq->replaceHead(NULL);
+        // In parallel mode, Ruby controllers, sequencers and CPUs can be on
+        // any of the main event queues, so set aside the events and time of
+        // every queue, not only this object's queue.
+        EventQueue *orig_eventq = curEventQueue();
+        std::vector<Event *> eventq_heads;
+        for (uint32_t i = 0; i < numMainEventQueues; ++i) {
+            EventQueue *curr_eventq = mainEventQueue[i];
+            curr_eventq->lock();
+            curEventQueue(curr_eventq);
+
+            DPRINTF(RubyCacheTrace, "Checking current tick %ld for queue %s\n",
+                    curr_eventq->getCurTick(), curr_eventq->name());
+            gem5_assert(curr_eventq->getCurTick() == curtick_original);
+            // save the event queue head
+            eventq_heads.push_back(curr_eventq->replaceHead(NULL));
+            // set curTick to 0
+            curr_eventq->setCurTick(0);
+            curr_eventq->unlock();
+        }
+
         // save the exit event pointer
         GlobalSimLoopExitEvent *original_simulate_limit_event = nullptr;
         original_simulate_limit_event = simulate_limit_event;
-        // set curTick to 0 and reset Ruby System's clock
-        setCurTick(0);
+        // reset Ruby System's clock
         resetClock();
 
         // Schedule an event to start cache warmup
@@ -472,12 +527,24 @@ RubySystem::startup()
         m_cache_recorder = NULL;
         m_warmup_enabled = false;
 
-        // Restore eventq head
-        eventq->replaceHead(eventq_head);
+        for (uint32_t i = 0; i < numMainEventQueues; ++i) {
+            EventQueue *curr_eventq = mainEventQueue[i];
+            curr_eventq->lock();
+            curEventQueue(curr_eventq);
+
+            // Merge requests other queues left for this one, which are
+            // dropped with the rest of the warmup events below.
+            curr_eventq->handleAsyncInsertions();
+            // Restore eventq head
+            curr_eventq->replaceHead(eventq_heads[i]);
+            // Restore curTick
+            curr_eventq->setCurTick(curtick_original);
+            curr_eventq->unlock();
+        }
+        curEventQueue(orig_eventq);
         // Restore exit event pointer
         simulate_limit_event = original_simulate_limit_event;
-        // Restore curTick and Ruby System's clock
-        setCurTick(curtick_original);
+        // Restore Ruby System's clock
         resetClock();
     }
 
