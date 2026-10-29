@@ -42,6 +42,8 @@
 
 #include "sim/simulate.hh"
 
+#include <memory>
+
 #include "base/logging.hh"
 #include "base/pollevent.hh"
 #include "base/trace.hh"
@@ -58,12 +60,7 @@
 namespace gem5
 {
 
-//! forward declaration
-Event *doSimLoop(EventQueue *);
-
 GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
-
-static std::unique_ptr<SimulatorThreads> simulatorThreads;
 
 struct DescheduleDeleter
 {
@@ -99,8 +96,7 @@ simulate(Tick num_cycles)
     DPRINTF(EnteringEventQueue, "Entering event queue @ %d. Starting "
         "simulation...\n", curTick());
 
-    if (!simulatorThreads)
-        simulatorThreads.reset(new SimulatorThreads(numMainEventQueues));
+    SimulatorThreadController simulatorThreads(numMainEventQueues);
 
     if (!simulate_limit_event) {
         // If the simulate_limit_event is not set, we set it to MaxTick.
@@ -131,9 +127,10 @@ simulate(Tick num_cycles)
         inParallelMode = true;
     }
 
-    simulatorThreads->runUntilLocalExit();
-    Event *local_event = doSimLoop(mainEventQueue[0]);
+    Event *local_event = simulatorThreads.run();
     assert(local_event);
+
+    simulatorThreads.terminate();
 
     // Restore normal ctrl-c operation as soon as the event queue is done
     restoreSigInt();
@@ -178,69 +175,8 @@ Tick get_max_tick()
 void
 terminateEventQueueThreads()
 {
-    simulatorThreads->terminateThreads();
-}
-
-
-/**
- * The main per-thread simulation loop. This loop is executed by all
- * simulation threads (the main thread and the subordinate threads) in
- * parallel.
- */
-Event *
-doSimLoop(EventQueue *eventq)
-{
-    // set the per thread current eventq pointer
-    curEventQueue(eventq);
-    eventq->handleAsyncInsertions();
-
-    bool mainQueue = eventq == getEventQueue(0);
-
-    while (1) {
-        // there should always be at least one event (the SimLoopExitEvent
-        // we just scheduled) in the queue
-        assert(!eventq->empty());
-        assert(curTick() <= eventq->nextTick() &&
-               "event scheduled in the past");
-
-        if (mainQueue && async_event) {
-            async_event = false;
-            // Take the event queue lock in case any of the service
-            // routines want to schedule new events.
-            std::lock_guard<EventQueue> lock(*eventq);
-            if (async_statdump || async_statreset) {
-                statistics::schedStatEvent(async_statdump, async_statreset);
-                async_statdump = false;
-                async_statreset = false;
-            }
-
-            if (async_io) {
-                async_io = false;
-                pollQueue.service();
-            }
-
-            if (async_exit) {
-                async_exit = false;
-                exitSimulationLoopClassic("user interrupt received");
-            }
-
-            if (async_exception) {
-                async_exception = false;
-                return NULL;
-            }
-            if (async_hypercall) {
-                async_hypercall = false;
-                processExternalSignal();
-            }
-        }
-
-        Event *exit_event = eventq->serviceOne();
-        if (exit_event != NULL) {
-            return exit_event;
-        }
-    }
-
-    // not reached... only exit is return on SimLoopExitEvent
+    // Each simulate() call now creates and terminates its own threads, so
+    // there are none left to terminate here.
 }
 
 } // namespace gem5
