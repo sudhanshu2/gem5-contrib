@@ -81,7 +81,10 @@ class PyEvent : public Event
     }
 
   protected:
+    // These may run on a simulation thread, which does not hold the GIL.
+    // process() needs no lock here: PYBIND11_OVERLOAD_PURE_NAME takes it.
     void acquireImpl() override {
+        py::gil_scoped_acquire gil;
         py::object obj = py::cast(this);
 
         if (obj) {
@@ -92,6 +95,7 @@ class PyEvent : public Event
     }
 
     void releaseImpl() override {
+        py::gil_scoped_acquire gil;
         py::object obj = py::cast(this);
 
         if (obj) {

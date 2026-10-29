@@ -42,9 +42,10 @@
 
 #include "sim/simulate.hh"
 
-#include <atomic>
-#include <barrier>
-#include <thread>
+#include "pybind11/pybind11.h"
+
+#include <memory>
+#include <optional>
 
 #include "base/logging.hh"
 #include "base/pollevent.hh"
@@ -56,119 +57,13 @@
 #include "sim/init_signals.hh"
 #include "sim/sim_events.hh"
 #include "sim/sim_exit.hh"
+#include "sim/simulator_thread.hh"
 #include "sim/stat_control.hh"
 
 namespace gem5
 {
 
-//! forward declaration
-Event *doSimLoop(EventQueue *);
-
 GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
-
-class SimulatorThreads
-{
-  public:
-    SimulatorThreads() = delete;
-    SimulatorThreads(const SimulatorThreads &) = delete;
-    SimulatorThreads &operator=(SimulatorThreads &) = delete;
-
-    SimulatorThreads(uint32_t num_queues)
-        : terminate(false),
-          numQueues(num_queues),
-          barrier(num_queues)
-    {
-        threads.reserve(num_queues);
-    }
-
-    ~SimulatorThreads()
-    {
-        // This should only happen after exit has been
-        // called. Subordinate event queues should normally (assuming
-        // exit is called from Python) be waiting on the barrier when
-        // this happens.
-        //
-        // N.B.: Not terminating here would make it impossible to
-        // safely destroy the barrier.
-        terminateThreads();
-    }
-
-    void runUntilLocalExit()
-    {
-        assert(!terminate);
-
-        // Start subordinate threads if needed.
-        if (threads.empty()) {
-            // the main thread (the one running Python) handles queue 0,
-            // so we only need to allocate new threads for queues 1..N-1.
-            // We'll call these the "subordinate" threads.
-            for (uint32_t i = 1; i < numQueues; i++) {
-                threads.emplace_back(
-                    [this](EventQueue *eq) {
-                        thread_main(eq);
-                    }, mainEventQueue[i]);
-            }
-        }
-
-        // This method is called from the main thread. All subordinate
-        // threads should be waiting on the barrier when the function
-        // is called. The arrival of the main thread here will satisfy
-        // the barrier and start another iteration in the thread loop.
-        barrier.arrive_and_wait();
-    }
-
-    void
-    terminateThreads()
-    {
-        assert(!terminate);
-        if (threads.empty())
-            return;
-
-        /* This function should only be called when the simulator is
-         * handling a global exit event (typically from Python). This
-         * means that the helper threads will be waiting on the
-         * barrier. Tell the helper threads to exit and release them from
-         * their barrier. */
-        terminate = true;
-        barrier.arrive_and_wait();
-
-        /* Wait for all of the threads to terminate */
-        for (auto &t : threads) {
-            t.join();
-        }
-
-        terminate = false;
-        threads.clear();
-    }
-
-  protected:
-    /**
-     * The main function for all subordinate threads (i.e., all threads
-     * other than the main thread).  These threads start by waiting on
-     * threadBarrier.  Once all threads have arrived at threadBarrier,
-     * they enter the simulation loop concurrently.  When they exit the
-     * loop, they return to waiting on threadBarrier.  This process is
-     * repeated until the simulation terminates.
-     */
-    void
-    thread_main(EventQueue *queue)
-    {
-        /* Wait for all initialisation to complete */
-        barrier.arrive_and_wait();
-
-        while (!terminate) {
-            doSimLoop(queue);
-            barrier.arrive_and_wait();
-        }
-    }
-
-    std::atomic<bool> terminate;
-    uint32_t numQueues;
-    std::vector<std::thread> threads;
-    std::barrier<> barrier;
-};
-
-static std::unique_ptr<SimulatorThreads> simulatorThreads;
 
 struct DescheduleDeleter
 {
@@ -204,8 +99,7 @@ simulate(Tick num_cycles)
     DPRINTF(EnteringEventQueue, "Entering event queue @ %d. Starting "
         "simulation...\n", curTick());
 
-    if (!simulatorThreads)
-        simulatorThreads.reset(new SimulatorThreads(numMainEventQueues));
+    SimulatorThreadController simulatorThreads(numMainEventQueues);
 
     if (!simulate_limit_event) {
         // If the simulate_limit_event is not set, we set it to MaxTick.
@@ -236,8 +130,20 @@ simulate(Tick num_cycles)
         inParallelMode = true;
     }
 
-    simulatorThreads->runUntilLocalExit();
-    Event *local_event = doSimLoop(mainEventQueue[0]);
+    Event *local_event;
+    {
+        // The simulation threads take the GIL whenever they call into
+        // Python, so this thread must not hold it while it waits for
+        // them. simulate() is also called from C++ (for example by Ruby),
+        // so only release the GIL if this thread holds it.
+        std::optional<pybind11::gil_scoped_release> release_gil;
+        if (Py_IsInitialized() && PyGILState_Check()) {
+            release_gil.emplace();
+        }
+
+        local_event = simulatorThreads.run();
+        simulatorThreads.terminate();
+    }
     assert(local_event);
 
     // Restore normal ctrl-c operation as soon as the event queue is done
@@ -283,69 +189,8 @@ Tick get_max_tick()
 void
 terminateEventQueueThreads()
 {
-    simulatorThreads->terminateThreads();
-}
-
-
-/**
- * The main per-thread simulation loop. This loop is executed by all
- * simulation threads (the main thread and the subordinate threads) in
- * parallel.
- */
-Event *
-doSimLoop(EventQueue *eventq)
-{
-    // set the per thread current eventq pointer
-    curEventQueue(eventq);
-    eventq->handleAsyncInsertions();
-
-    bool mainQueue = eventq == getEventQueue(0);
-
-    while (1) {
-        // there should always be at least one event (the SimLoopExitEvent
-        // we just scheduled) in the queue
-        assert(!eventq->empty());
-        assert(curTick() <= eventq->nextTick() &&
-               "event scheduled in the past");
-
-        if (mainQueue && async_event) {
-            async_event = false;
-            // Take the event queue lock in case any of the service
-            // routines want to schedule new events.
-            std::lock_guard<EventQueue> lock(*eventq);
-            if (async_statdump || async_statreset) {
-                statistics::schedStatEvent(async_statdump, async_statreset);
-                async_statdump = false;
-                async_statreset = false;
-            }
-
-            if (async_io) {
-                async_io = false;
-                pollQueue.service();
-            }
-
-            if (async_exit) {
-                async_exit = false;
-                exitSimulationLoopClassic("user interrupt received");
-            }
-
-            if (async_exception) {
-                async_exception = false;
-                return NULL;
-            }
-            if (async_hypercall) {
-                async_hypercall = false;
-                processExternalSignal();
-            }
-        }
-
-        Event *exit_event = eventq->serviceOne();
-        if (exit_event != NULL) {
-            return exit_event;
-        }
-    }
-
-    // not reached... only exit is return on SimLoopExitEvent
+    // Each simulate() call now creates and terminates its own threads, so
+    // there are none left to terminate here.
 }
 
 } // namespace gem5
