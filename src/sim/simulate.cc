@@ -42,7 +42,10 @@
 
 #include "sim/simulate.hh"
 
+#include "pybind11/pybind11.h"
+
 #include <memory>
+#include <optional>
 
 #include "base/logging.hh"
 #include "base/pollevent.hh"
@@ -127,10 +130,21 @@ simulate(Tick num_cycles)
         inParallelMode = true;
     }
 
-    Event *local_event = simulatorThreads.run();
-    assert(local_event);
+    Event *local_event;
+    {
+        // The simulation threads take the GIL whenever they call into
+        // Python, so this thread must not hold it while it waits for
+        // them. simulate() is also called from C++ (for example by Ruby),
+        // so only release the GIL if this thread holds it.
+        std::optional<pybind11::gil_scoped_release> release_gil;
+        if (Py_IsInitialized() && PyGILState_Check()) {
+            release_gil.emplace();
+        }
 
-    simulatorThreads.terminate();
+        local_event = simulatorThreads.run();
+        simulatorThreads.terminate();
+    }
+    assert(local_event);
 
     // Restore normal ctrl-c operation as soon as the event queue is done
     restoreSigInt();
