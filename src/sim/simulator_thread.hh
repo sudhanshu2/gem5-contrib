@@ -1,48 +1,52 @@
 #ifndef __SIM_SIMULATOR_THREAD_HH__
 #define __SIM_SIMULATOR_THREAD_HH__
 
-#include <atomic>
 #include <barrier>
 #include <cstdint>
 #include <list>
+#include <stop_token>
 #include <thread>
 
 namespace gem5
 {
 
+class Event;
 class EventQueue;
 
 class SimulatorThread
 {
   public:
-    SimulatorThread(EventQueue *queue, std::barrier<> &barrier,
-                    std::atomic<bool> &terminate);
-    void start();
-    void execute();
-    void join();
+    SimulatorThread(EventQueue *_queue, bool _main_queue)
+        : queue(_queue), main_queue(_main_queue)
+    {}
+    void run();
+    void stop();
+    void wait();
+    Event *exitEvent() const { return exit_event; }
 
   protected:
+    Event *simulate();
+
     EventQueue *queue;
-    std::barrier<> &barrier;
-    std::atomic<bool> &terminate;
+    bool main_queue;
+    Event *exit_event = nullptr;
+    std::stop_token stop_token;
     std::jthread thread;
 };
 
-class SimulatorThreads
+class SimulatorThreadController
 {
   public:
-    SimulatorThreads(uint32_t num_queues);
+    SimulatorThreadController(uint32_t num_queues);
+    ~SimulatorThreadController() { terminate(); };
 
-    ~SimulatorThreads();
-
-    void runUntilLocalExit();
-    void terminateThreads();
+    Event *run();
+    void terminate();
 
   protected:
-    std::atomic<bool> terminate;
-    bool started = false;
+    uint32_t num_queues;
+    bool started;
     std::list<SimulatorThread> threads;
-    std::barrier<> barrier;
 };
 
 } // namespace gem5
