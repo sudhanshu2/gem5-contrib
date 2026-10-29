@@ -91,6 +91,8 @@ namespace statistics
 void
 pythonDump()
 {
+    // Called from a stat event, which may run on a simulation thread.
+    py::gil_scoped_acquire gil;
     py::module_ m = py::module_::import("m5.stats");
     m.attr("dump")();
 }
@@ -98,6 +100,7 @@ pythonDump()
 void
 pythonReset()
 {
+    py::gil_scoped_acquire gil;
     py::module_ m = py::module_::import("m5.stats");
     m.attr("reset")();
 }
