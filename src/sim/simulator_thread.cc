@@ -2,82 +2,131 @@
 
 #include <cassert>
 
+#include "base/pollevent.hh"
+#include "sim/async.hh"
+#include "sim/cur_tick.hh"
 #include "sim/eventq.hh"
+#include "sim/init_signals.hh"
+#include "sim/sim_exit.hh"
+#include "sim/stat_control.hh"
 
 namespace gem5
 {
-Event *doSimLoop(EventQueue *);
-
-SimulatorThread::SimulatorThread(EventQueue *_queue, std::barrier<> &_barrier,
-                                 std::atomic<bool> &_terminate)
-    : queue(_queue), barrier(_barrier), terminate(_terminate)
-{}
 
 void
-SimulatorThread::start()
+SimulatorThread::run()
 {
-    if (!thread.joinable()) {
-        thread = std::jthread([this]() { execute(); });
+    thread = std::jthread([this](std::stop_token token) {
+        stop_token = token;
+        exit_event = simulate();
+    });
+}
+
+void
+SimulatorThread::stop()
+{
+    if (thread.joinable()) {
+        thread.request_stop();
     }
 }
 
 void
-SimulatorThread::join()
+SimulatorThread::wait()
 {
     if (thread.joinable()) {
         thread.join();
     }
 }
 
-SimulatorThreads::SimulatorThreads(uint32_t num_queues)
-    : terminate(false), barrier(num_queues)
+
+Event *
+SimulatorThread::simulate()
 {
-    for (uint32_t i = 1; i < num_queues; i++) {
-        threads.emplace_back(mainEventQueue[i], barrier, terminate);
+    // set the per thread current eventq pointer
+    curEventQueue(queue);
+    queue->handleAsyncInsertions();
+
+    while (!stop_token.stop_requested()) {
+        // there should always be at least one event (the SimLoopExitEvent
+        // we just scheduled) in the queue
+        assert(!queue->empty());
+        assert(curTick() <= queue->nextTick() &&
+               "event scheduled in the past");
+
+        if (main_queue && async_event) {
+            async_event = false;
+            // Take the event queue lock in case any of the service
+            // routines want to schedule new events.
+            std::lock_guard<EventQueue> lock(*queue);
+            if (async_statdump || async_statreset) {
+                statistics::schedStatEvent(async_statdump, async_statreset);
+                async_statdump = false;
+                async_statreset = false;
+            }
+
+            if (async_io) {
+                async_io = false;
+                pollQueue.service();
+            }
+
+            if (async_exit) {
+                async_exit = false;
+                exitSimulationLoopClassic("user interrupt received");
+            }
+
+            if (async_exception) {
+                async_exception = false;
+                return NULL;
+            }
+            if (async_hypercall) {
+                async_hypercall = false;
+                processExternalSignal();
+            }
+        }
+
+        Event *event = queue->serviceOne();
+        if (event != nullptr) {
+            return event;
+        }
+    }
+
+    return nullptr;
+}
+
+SimulatorThreadController::SimulatorThreadController(uint32_t _num_queues)
+    : num_queues(_num_queues), started(false)
+{
+    for (uint32_t i = 0; i < num_queues; i++) {
+        threads.push_back(SimulatorThread(mainEventQueue[i], i == 0));
     }
 }
 
-SimulatorThreads::~SimulatorThreads()
+Event *
+SimulatorThreadController::run()
 {
-    terminateThreads();
-}
-
-void
-SimulatorThreads::runUntilLocalExit()
-{
-    assert(!terminate);
+    assert(!started);
     for (auto &t : threads) {
-        t.start();
+        t.run();
     }
     started = true;
-    barrier.arrive_and_wait();
-}
-
-void
-SimulatorThreads::terminateThreads()
-{
-    assert(!terminate);
-    if (!started) {
-        return;
-    }
-    terminate = true;
-    barrier.arrive_and_wait();
     for (auto &t : threads) {
-        t.join();
+        t.wait();
     }
-    terminate = false;
-    started = false;
+    Event *exit_event = threads.front().exitEvent();
+    assert(exit_event != nullptr);
+    return exit_event;
 }
 
 void
-SimulatorThread::execute()
+SimulatorThreadController::terminate()
 {
-    barrier.arrive_and_wait();
-
-    while (!terminate) {
-        doSimLoop(queue);
-        barrier.arrive_and_wait();
+    for (auto &t : threads) {
+        t.stop();
     }
+    for (auto &t : threads) {
+        t.wait();
+    }
+    started = false;
 }
 
 } // namespace gem5
