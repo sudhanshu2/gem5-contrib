@@ -1,7 +1,11 @@
 #include "sim/simulator_thread.hh"
 
-#include <cassert>
+#include <pthread.h>
 
+#include <cassert>
+#include <csignal>
+
+#include "base/logging.hh"
 #include "base/pollevent.hh"
 #include "sim/async.hh"
 #include "sim/cur_tick.hh"
@@ -16,10 +20,32 @@ namespace gem5
 void
 SimulatorThread::run()
 {
+    blockSignal(SIGINT);
     thread = std::jthread([this](std::stop_token token) {
         stop_token = token;
         exit_event = simulate();
     });
+    unblockSignal(SIGINT);
+}
+
+void
+SimulatorThread::blockSignal(int signo)
+{
+    sigset_t block_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, signo);
+    int err = pthread_sigmask(SIG_BLOCK, &block_mask, nullptr);
+    panic_if(err != 0, "Failed to block signal %d: %d", signo, err);
+}
+
+void
+SimulatorThread::unblockSignal(int signo)
+{
+    sigset_t unblock_mask;
+    sigemptyset(&unblock_mask);
+    sigaddset(&unblock_mask, signo);
+    int err = pthread_sigmask(SIG_UNBLOCK, &unblock_mask, nullptr);
+    panic_if(err != 0, "Failed to unblock signal %d: %d", signo, err);
 }
 
 void
