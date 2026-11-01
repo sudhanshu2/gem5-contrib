@@ -2,6 +2,7 @@
 #define __SIM_SIMULATOR_THREAD_HH__
 
 #include <barrier>
+#include <csignal>
 #include <cstdint>
 #include <list>
 #include <stop_token>
@@ -25,6 +26,10 @@ class SimulatorThread
     Event *exitEvent() const { return exit_event; }
 
   protected:
+    void blockSignal(int signo);
+
+    void unblockSignal(int signo);
+
     Event *simulate();
 
     EventQueue *queue;

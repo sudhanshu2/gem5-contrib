@@ -44,6 +44,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cctype>
 #include <csignal>
 #include <cstring>
@@ -146,6 +147,13 @@ dumprstStatsHandler(int sigtype)
 void
 exitNowHandler(int sigtype)
 {
+    // Allows SIGINT to be caught if gem5 threads are in a deadlock
+    static std::atomic<int> interrupts{0};
+    if (interrupts.fetch_add(1) > 0) {
+        STATIC_ERR(
+            "Second interrupt received, simulation quitting immediately.\n");
+        _exit(128 + sigtype);
+    }
     async_event = true;
     async_exit = true;
     /* Wake up some event queue to handle event */
