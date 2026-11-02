@@ -591,6 +591,8 @@ def main():
     # enabled
     if options.listener_mode == "off":
         m5.disableAllListeners()
+    elif options.listener_mode == "auto" and options.remote_gdb_port:
+        inform("Enabling listeners as remote GDB enabled.")
     elif options.listener_mode == "auto":
         if not isInteractive():
             inform("Standard input is not a terminal, disabling listeners.")

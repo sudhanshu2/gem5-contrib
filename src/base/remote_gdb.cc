@@ -149,6 +149,7 @@
 #include "base/intmath.hh"
 #include "base/logging.hh"
 #include "base/socket.hh"
+#include "base/thread.hh"
 #include "base/trace.hh"
 #include "cpu/base.hh"
 #include "cpu/static_inst.hh"
@@ -1235,6 +1236,10 @@ BaseRemoteGDB::cmdSetThread(GdbCommand::Context &ctx)
         if (!any && tid != tc->contextId()) {
             if (!selectThreadContext(tid))
                 throw CmdError("E04");
+            if (unsafe_remote_gdb) {
+                send("OK");
+                return true;
+            }
             // Line up on an instruction boundary in the new thread.
             threadSwitching = true;
             scheduleTrapEvent(tid,GDBSignal::ZERO,0,"");
@@ -1735,7 +1740,7 @@ BaseRemoteGDB::startUnsafeThread()
     }
 
     gdb_service_thread = new std::jthread([](std::stop_token token) {
-        SimulatorThread::blockSignal(SIGINT);
+        blockSignal(SIGINT);
         curEventQueue(getEventQueue(0));
         while (!token.stop_requested()) {
             {
