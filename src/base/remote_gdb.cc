@@ -134,6 +134,7 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -159,6 +160,7 @@
 #include "sim/full_system.hh"
 #include "sim/process.hh"
 #include "sim/sim_events.hh"
+#include "sim/simulator_thread.hh"
 #include "sim/system.hh"
 
 namespace gem5
@@ -459,11 +461,16 @@ BaseRemoteGDB::listen()
         return;
     }
 
+    std::lock_guard<std::recursive_mutex> guard(gdb_mutex);
+
     listener->listen();
 
     incomingConnectionEvent =
             new IncomingConnectionEvent(this, listener->getfd(), POLLIN);
     gdb_connection_queue.schedule(incomingConnectionEvent);
+    if (unsafe_remote_gdb) {
+        startUnsafeThread();
+    }
 }
 
 void
@@ -471,6 +478,8 @@ BaseRemoteGDB::connect()
 {
     panic_if(!listener->islistening(),
              "Can't accept GDB connections without any threads!");
+
+    std::lock_guard<std::recursive_mutex> guard(gdb_mutex);
 
     gdb_connection_queue.remove(incomingConnectionEvent);
 
@@ -487,7 +496,7 @@ BaseRemoteGDB::connect()
 void
 BaseRemoteGDB::service()
 {
-    if (!enabled) {
+    if (!enabled || unsafe_remote_gdb) {
         return;
     }
     gdb_connection_queue.service();
@@ -534,7 +543,7 @@ BaseRemoteGDB::attach(int f)
         //
         // Hence the check above.
         incomingDataEvent = new IncomingDataEvent(this, fd, POLLIN);
-        pollQueue.schedule(incomingDataEvent);
+        gdbQueue().schedule(incomingDataEvent);
     }
 }
 
@@ -556,7 +565,7 @@ BaseRemoteGDB::detach()
         //
         // Hence the check above.
 
-        pollQueue.remove(incomingDataEvent);
+        gdbQueue().remove(incomingDataEvent);
         incomingDataEvent = nullptr;
     }
     gdb_connection_queue.schedule(incomingConnectionEvent);
@@ -608,6 +617,7 @@ BaseRemoteGDB::selectThreadContext(ContextID id)
 void
 BaseRemoteGDB::trap(ContextID id, GDBSignal sig,const std::string& stopReason)
 {
+    std::lock_guard<std::recursive_mutex> guard(gdb_mutex);
     if (!attached)
         return;
 
@@ -1715,6 +1725,26 @@ BaseRemoteGDB::cmdSetHwBkpt(GdbCommand::Context &ctx)
     send("OK");
 
     return true;
+}
+
+void
+BaseRemoteGDB::startUnsafeThread()
+{
+    if (gdb_service_thread) {
+        return;
+    }
+
+    gdb_service_thread = new std::thread([]() {
+        SimulatorThread::blockSignal(SIGINT);
+        curEventQueue(getEventQueue(0));
+        while (true) {
+            {
+                std::lock_guard<std::recursive_mutex> guard(gdb_mutex);
+                gdb_connection_queue.service();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
 }
 
 } // namespace gem5

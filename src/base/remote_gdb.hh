@@ -48,7 +48,9 @@
 #include <exception>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "arch/generic/pcstate.hh"
@@ -182,6 +184,17 @@ class BaseRemoteGDB
       std::string stopReason);
     /** @} */ // end of api_remote_gdb
 
+    static void
+    enableUnsafe()
+    {
+        unsafe_remote_gdb = true;
+    }
+    static bool
+    isUnsafe()
+    {
+        return unsafe_remote_gdb;
+    }
+
     template <class GDBStub, class ...Args>
     static BaseRemoteGDB *
     build(ListenSocketConfig listen_config, Args... args)
@@ -239,6 +252,17 @@ class BaseRemoteGDB
 
     ListenSocketPtr listener;
 
+    PollQueue &
+    gdbQueue()
+    {
+        if (unsafe_remote_gdb) {
+            return gdb_connection_queue;
+        }
+        return pollQueue;
+    }
+
+    void startUnsafeThread();
+
     // The socket commands come in through.
     int fd;
 
@@ -288,6 +312,9 @@ class BaseRemoteGDB
 
     static inline bool enabled = false;
     static inline PollQueue gdb_connection_queue;
+    static inline std::recursive_mutex gdb_mutex;
+    static inline bool unsafe_remote_gdb = false;
+    static inline std::thread *gdb_service_thread = nullptr;
 
     class TrapEvent : public Event
     {

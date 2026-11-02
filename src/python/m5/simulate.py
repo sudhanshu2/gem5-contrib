@@ -659,6 +659,7 @@ def fork(simout="%(parent)s.f%(fork_seq)i"):
 from _m5.core import (
     curTick,
     disableAllListeners,
+    enableUnsafeRemoteGDB,
     listenersDisabled,
     listenersLoopbackOnly,
 )

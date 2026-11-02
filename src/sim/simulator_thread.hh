@@ -24,12 +24,10 @@ class SimulatorThread
     void stop();
     void wait();
     Event *exitEvent() const { return exit_event; }
+    static void blockSignal(int signo);
+    static void unblockSignal(int signo);
 
   protected:
-    void blockSignal(int signo);
-
-    void unblockSignal(int signo);
-
     Event *simulate();
 
     EventQueue *queue;
