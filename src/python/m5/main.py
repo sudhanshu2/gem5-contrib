@@ -324,6 +324,13 @@ def parse_options():
         default=0,
         help="Remote gdb base port (set to non 0 to enable listening)",
     )
+    option(
+        "--unsafe-remote-gdb",
+        action="store_true",
+        default=False,
+        help="Service remote GDB on its own thread without stopping the "
+        "simulator threads",
+    )
 
     option(
         "--show-exit-event-messages",
@@ -403,6 +410,7 @@ def main():
         trace,
     )
     from .util import (
+        fatal,
         inform,
         isInteractive,
         panic,
@@ -596,6 +604,10 @@ def main():
         m5.listenersLoopbackOnly()
 
     Workload.remote_gdb_port = options.remote_gdb_port
+    if options.unsafe_remote_gdb:
+        if not options.remote_gdb_port:
+            fatal("--unsafe-remote-gdb requires a non-zero --remote-gdb-port")
+        m5.enableUnsafeRemoteGDB()
 
     for when in options.debug_break:
         debug.schedBreak(int(when))

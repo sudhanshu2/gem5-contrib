@@ -106,6 +106,12 @@ Workload::startup()
 {
     SimObject::startup();
 
+    if (gdb && BaseRemoteGDB::isUnsafe()) {
+        warn("%s: Remote GDB is in unsafe mode and does not stop the "
+             "simulator threads.",
+             name());
+    }
+
     // Now that we're about to start simulation, wait for GDB connections if
     // requested.
     if (gdb && waitForRemoteGDB) {
