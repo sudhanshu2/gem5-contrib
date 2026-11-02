@@ -43,6 +43,8 @@ import runpy
 import socket
 import sys
 
+from m5.objects import Workload
+
 __all__ = ["options", "arguments", "main"]
 
 usage = "%prog [gem5 options] script.py [script options]"
@@ -319,8 +321,8 @@ def parse_options():
     option(
         "--remote-gdb-port",
         type="int",
-        default=7000,
-        help="Remote gdb base port (set to 0 to disable listening)",
+        default=0,
+        help="Remote gdb base port (set to non 0 to enable listening)",
     )
 
     option(
@@ -592,6 +594,8 @@ def main():
 
     if not options.allow_remote_connections:
         m5.listenersLoopbackOnly()
+
+    Workload.remote_gdb_port = options.remote_gdb_port
 
     for when in options.debug_break:
         debug.schedBreak(int(when))

@@ -49,6 +49,7 @@
 
 #include "base/logging.hh"
 #include "base/pollevent.hh"
+#include "base/remote_gdb.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
 #include "debug/EnteringEventQueue.hh"
@@ -245,6 +246,9 @@ doSimLoop(EventQueue *eventq)
             if (async_io) {
                 async_io = false;
                 pollQueue.service();
+                if (!inParallelMode) {
+                    BaseRemoteGDB::service();
+                }
             }
 
             if (async_exit) {

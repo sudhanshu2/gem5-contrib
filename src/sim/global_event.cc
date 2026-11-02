@@ -30,6 +30,7 @@
 
 #include "sim/global_event.hh"
 
+#include "base/remote_gdb.hh"
 #include "sim/cur_tick.hh"
 
 namespace gem5
@@ -128,6 +129,7 @@ BaseGlobalEvent::BarrierEvent::~BarrierEvent()
 void
 GlobalSyncEvent::process()
 {
+    BaseRemoteGDB::service();
     if (repeat) {
         Tick next_sim_quantum = curTick() + repeat;
         schedule(next_sim_quantum);
