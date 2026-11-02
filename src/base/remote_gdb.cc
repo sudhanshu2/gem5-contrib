@@ -387,14 +387,16 @@ breakType(char c)
 }
 
 std::map<Addr, HardBreakpoint *> hardBreakMap;
-
 }
 
 BaseRemoteGDB::BaseRemoteGDB(System *_system,
-        ListenSocketConfig _listen_config) :
-        incomingConnectionEvent(nullptr), incomingDataEvent(nullptr),
-        fd(-1), sys(_system), connectEvent(*this), disconnectEvent(*this),
-        trapEvent(this), singleStepEvent(*this)
+                             ListenSocketConfig _listen_config)
+    : incomingConnectionEvent(nullptr),
+      incomingDataEvent(nullptr),
+      fd(-1),
+      sys(_system),
+      trapEvent(this),
+      singleStepEvent(*this)
 {
     listener = _listen_config.build(name());
 }
@@ -416,6 +418,7 @@ BaseRemoteGDB::listen()
 {
     if (ListenSocket::allDisabled()) {
         warn_once("Sockets disabled, not accepting gdb connections");
+        enabled = false;
         return;
     }
 
@@ -423,7 +426,7 @@ BaseRemoteGDB::listen()
 
     incomingConnectionEvent =
             new IncomingConnectionEvent(this, listener->getfd(), POLLIN);
-    pollQueue.schedule(incomingConnectionEvent);
+    gdb_connection_queue.schedule(incomingConnectionEvent);
 }
 
 void
@@ -432,7 +435,7 @@ BaseRemoteGDB::connect()
     panic_if(!listener->islistening(),
              "Can't accept GDB connections without any threads!");
 
-    pollQueue.remove(incomingConnectionEvent);
+    gdb_connection_queue.remove(incomingConnectionEvent);
 
     int sfd = listener->accept();
 
@@ -442,6 +445,15 @@ BaseRemoteGDB::connect()
         else
             attach(sfd);
     }
+}
+
+void
+BaseRemoteGDB::service()
+{
+    if (!enabled) {
+        return;
+    }
+    gdb_connection_queue.service();
 }
 
 const ListenSocket &
@@ -510,7 +522,7 @@ BaseRemoteGDB::detach()
         pollQueue.remove(incomingDataEvent);
         incomingDataEvent = nullptr;
     }
-    pollQueue.schedule(incomingConnectionEvent);
+    gdb_connection_queue.schedule(incomingConnectionEvent);
     DPRINTFN("remote gdb detached\n");
 }
 
@@ -604,13 +616,8 @@ BaseRemoteGDB::sendMessage(std::string message)
 void
 BaseRemoteGDB::incomingConnection(int revent)
 {
-    if (connectEvent.scheduled()) {
-        warn("GDB connect event has already been scheduled!");
-        return;
-    }
-
     if (revent & POLLIN) {
-        scheduleInstCommitEvent(&connectEvent, 0);
+        connect();
     }
 }
 
@@ -623,10 +630,10 @@ BaseRemoteGDB::incomingData(int revent)
     }
 
     if (revent & POLLIN) {
-        scheduleTrapEvent(tc->contextId(),GDBSignal::ILL,0,"");
+        trap(tc->contextId(), GDBSignal::ILL);
     } else if (revent & POLLNVAL) {
         descheduleInstCommitEvent(&trapEvent);
-        scheduleInstCommitEvent(&disconnectEvent, 0);
+        detach();
     }
 }
 
