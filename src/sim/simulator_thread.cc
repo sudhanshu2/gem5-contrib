@@ -7,6 +7,7 @@
 
 #include "base/logging.hh"
 #include "base/pollevent.hh"
+#include "base/remote_gdb.hh"
 #include "sim/async.hh"
 #include "sim/cur_tick.hh"
 #include "sim/eventq.hh"
@@ -87,6 +88,9 @@ SimulatorThread::simulate()
             if (async_io) {
                 async_io = false;
                 pollQueue.service();
+                if (!inParallelMode) {
+                    BaseRemoteGDB::service();
+                }
             }
 
             if (async_exit) {

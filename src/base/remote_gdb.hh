@@ -162,6 +162,7 @@ class BaseRemoteGDB
 
     void listen();
     void connect();
+    static void service();
 
     const ListenSocket &hostSocket() const;
     std::string getListenerOutput() const;
@@ -185,10 +186,12 @@ class BaseRemoteGDB
     static BaseRemoteGDB *
     build(ListenSocketConfig listen_config, Args... args)
     {
-        if (listen_config)
+        if (listen_config) {
+            enabled = true;
             return new GDBStub(args..., listen_config);
-        else
+        } else {
             return nullptr;
+        }
     }
 
   protected:
@@ -283,8 +286,8 @@ class BaseRemoteGDB
 
     BaseGdbRegCache *regCachePtr = nullptr;
 
-    MemberEventWrapper<&BaseRemoteGDB::connect> connectEvent;
-    MemberEventWrapper<&BaseRemoteGDB::detach>  disconnectEvent;
+    static inline bool enabled = false;
+    static inline PollQueue gdb_connection_queue;
 
     class TrapEvent : public Event
     {
