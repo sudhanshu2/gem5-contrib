@@ -1199,6 +1199,10 @@ BaseRemoteGDB::cmdSetThread(GdbCommand::Context &ctx)
         if (!any && tid != tc->contextId()) {
             if (!selectThreadContext(tid))
                 throw CmdError("E04");
+            if (unsafe_remote_gdb) {
+                send("OK");
+                return true;
+            }
             // Line up on an instruction boundary in the new thread.
             threadSwitching = true;
             scheduleTrapEvent(tid,GDBSignal::ZERO,0,"");
