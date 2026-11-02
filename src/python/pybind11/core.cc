@@ -50,6 +50,7 @@
 #include "base/loader/elf_object.hh"
 #include "base/logging.hh"
 #include "base/random.hh"
+#include "base/remote_gdb.hh"
 #include "base/socket.hh"
 #include "base/temperature.hh"
 #include "base/types.hh"
@@ -419,6 +420,7 @@ pybind_init_core(py::module_ &m_native)
         .def("disableAllListeners", &ListenSocket::disableAll)
         .def("listenersDisabled", &ListenSocket::allDisabled)
         .def("listenersLoopbackOnly", &ListenSocket::loopbackOnly)
+        .def("enableUnsafeRemoteGDB", &BaseRemoteGDB::enableUnsafe)
         .def("seedRandom", [](uint64_t seed) { Random::reseedAll(seed); })
 
         .def("fixClockFrequency", &fixClockFrequency)
