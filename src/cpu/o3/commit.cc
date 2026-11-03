@@ -360,7 +360,16 @@ Commit::isDrained() const
      *   is executing in the middle of a ucode sequence that changes
      *   address mappings. This can happen on for example x86.
      */
+    bool any_active = false;
     for (ThreadID tid = 0; tid < numThreads; tid++) {
+        if (cpu->tcBase(tid)->status() != gem5::ThreadContext::Active) {
+            if (rob->isEmpty(tid)) {
+                continue;
+            }
+        } else {
+            any_active = true;
+        }
+
         if (pc[tid]->microPC() != 0)
             return false;
     }
@@ -371,8 +380,7 @@ Commit::isDrained() const
      * makes debugging easier since CPU handover and restoring from a
      * checkpoint with a different CPU should have the same timing.
      */
-    return rob->isEmpty() &&
-        interrupt == NoFault;
+    return rob->isEmpty() && (interrupt == NoFault || !any_active);
 }
 
 void
