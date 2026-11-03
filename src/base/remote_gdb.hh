@@ -262,6 +262,7 @@ class BaseRemoteGDB
     }
 
     void startUnsafeThread();
+    static void stopUnsafeThread();
 
     // The socket commands come in through.
     int fd;
@@ -314,7 +315,7 @@ class BaseRemoteGDB
     static inline PollQueue gdb_connection_queue;
     static inline std::recursive_mutex gdb_mutex;
     static inline bool unsafe_remote_gdb = false;
-    static inline std::thread *gdb_service_thread = nullptr;
+    static inline std::jthread *gdb_service_thread = nullptr;
 
     class TrapEvent : public Event
     {
