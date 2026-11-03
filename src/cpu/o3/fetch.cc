@@ -415,7 +415,8 @@ Fetch::drainSanityCheck() const
 
     for (ThreadID i = 0; i < numThreads; ++i) {
         assert(!memReq[i]);
-        assert(fetchStatus[i] == Idle || stalls[i].drain);
+        assert(fetchStatus[i] == Idle || stalls[i].drain ||
+               cpu->tcBase(i)->status() != gem5::ThreadContext::Active);
     }
 }
 
@@ -432,6 +433,14 @@ Fetch::isDrained() const
         // Verify fetch queues are drained
         if (!fetchQueue[i].empty())
             return false;
+
+        if (cpu->tcBase(i)->status() != gem5::ThreadContext::Active &&
+            !memReq[i] && fetchStatus[i] != ItlbWait &&
+            fetchStatus[i] != IcacheWaitResponse &&
+            fetchStatus[i] != IcacheWaitRetry &&
+            fetchStatus[i] != IcacheAccessComplete) {
+            continue;
+        }
 
         // Return false if not idle or drain stalled
         if (fetchStatus[i] != Idle) {
