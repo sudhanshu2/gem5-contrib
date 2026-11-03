@@ -1,6 +1,8 @@
 #include "sim/simulator_thread.hh"
 
 #include <cassert>
+#include <csignal>
+#include <mutex>
 
 #include "base/pollevent.hh"
 #include "sim/async.hh"
@@ -44,7 +46,10 @@ SimulatorThread::simulate()
 {
     // set the per thread current eventq pointer
     curEventQueue(queue);
-    queue->handleAsyncInsertions();
+    {
+        std::lock_guard<EventQueue> lock(*queue);
+        queue->handleAsyncInsertions();
+    }
 
     while (!stop_token.stop_requested()) {
         if (main_queue && async_event) {
