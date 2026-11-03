@@ -138,6 +138,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <iterator>
 #include <locale>
 #include <sstream>
@@ -1733,10 +1734,10 @@ BaseRemoteGDB::startUnsafeThread()
         return;
     }
 
-    gdb_service_thread = new std::thread([]() {
+    gdb_service_thread = new std::jthread([](std::stop_token token) {
         SimulatorThread::blockSignal(SIGINT);
         curEventQueue(getEventQueue(0));
-        while (true) {
+        while (!token.stop_requested()) {
             {
                 std::lock_guard<std::recursive_mutex> guard(gdb_mutex);
                 gdb_connection_queue.service();
@@ -1744,6 +1745,19 @@ BaseRemoteGDB::startUnsafeThread()
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     });
+
+    std::atexit(stopUnsafeThread);
+}
+
+void
+BaseRemoteGDB::stopUnsafeThread()
+{
+    if (!gdb_service_thread) {
+        return;
+    }
+    gdb_service_thread->request_stop();
+    gdb_service_thread->join();
+    gdb_service_thread = nullptr;
 }
 
 } // namespace gem5
