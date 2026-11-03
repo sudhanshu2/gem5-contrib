@@ -48,6 +48,7 @@
 #define __MEM_RUBY_COMMON_CONSUMER_HH__
 
 #include <iostream>
+#include <list>
 #include <set>
 
 #include "base/types.hh"
@@ -66,9 +67,7 @@ class Consumer
     Consumer(ClockedObject *em,
              Event::Priority ev_prio = Event::Default_Pri);
 
-    virtual
-    ~Consumer()
-    { }
+    virtual ~Consumer();
 
     virtual void wakeup() = 0;
     virtual void print(std::ostream& out) const = 0;
@@ -88,6 +87,7 @@ class Consumer
 
     void scheduleEventAbsolute(Tick evt_time);
     void scheduleEvent(Cycles time_delta);
+    void clearWakeupTicks();
 
   private:
     std::set<Tick> m_wakeup_ticks;
@@ -98,6 +98,7 @@ class Consumer
     void processCurrentEvent();
 };
 
+std::list<Consumer *> &rubyConsumers();
 
 inline std::ostream&
 operator<<(std::ostream& out, const Consumer& obj)

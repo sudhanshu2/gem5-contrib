@@ -53,6 +53,7 @@
 #include "debug/RubyCacheTrace.hh"
 #include "debug/RubySystem.hh"
 #include "mem/ruby/common/Address.hh"
+#include "mem/ruby/common/Consumer.hh"
 #include "mem/ruby/network/Network.hh"
 #include "mem/ruby/system/DMASequencer.hh"
 #include "mem/ruby/system/Sequencer.hh"
@@ -530,6 +531,20 @@ RubySystem::startup()
             curr_eventq->lock();
             curEventQueue(curr_eventq);
             curr_eventq->handleAsyncInsertions();
+            while (!curr_eventq->empty()) {
+                curr_eventq->deschedule(curr_eventq->getHead());
+            }
+            curr_eventq->unlock();
+        }
+
+        for (Consumer *consumer : rubyConsumers()) {
+            consumer->clearWakeupTicks();
+        }
+
+        for (uint32_t i = 0; i < numMainEventQueues; ++i) {
+            EventQueue *curr_eventq = mainEventQueue[i];
+            curr_eventq->lock();
+            curEventQueue(curr_eventq);
             // Restore eventq head
             curr_eventq->replaceHead(eventq_heads[i]);
             // Restore curTick
