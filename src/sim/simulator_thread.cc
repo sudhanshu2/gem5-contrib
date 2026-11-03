@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <csignal>
+#include <mutex>
 
 #include "base/logging.hh"
 #include "base/pollevent.hh"
@@ -71,7 +72,10 @@ SimulatorThread::simulate()
 {
     // set the per thread current eventq pointer
     curEventQueue(queue);
-    queue->handleAsyncInsertions();
+    {
+        std::lock_guard<EventQueue> lock(*queue);
+        queue->handleAsyncInsertions();
+    }
 
     while (!stop_token.stop_requested()) {
         if (main_queue && async_event) {
