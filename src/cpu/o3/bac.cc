@@ -197,7 +197,8 @@ BAC::drainSanityCheck() const
     assert(isDrained());
 
     for (ThreadID i = 0; i < numThreads; ++i) {
-        assert(bacStatus[i] == Idle || stalls[i].drain);
+        assert(bacStatus[i] == Idle || stalls[i].drain ||
+               cpu->tcBase(i)->status() != gem5::ThreadContext::Active);
         assert(ftq->isEmpty(i));
     }
 
@@ -212,6 +213,13 @@ BAC::isDrained() const
         // Verify the FTQ is drained
         if (!ftq->isEmpty(i)) {
             return false;
+        }
+
+        // A thread that is not active (for example a core the guest has
+        // not started yet) has nothing in flight once its FTQ is empty, so
+        // it is drained even if its status was never set to Idle.
+        if (cpu->tcBase(i)->status() != gem5::ThreadContext::Active) {
+            continue;
         }
 
         // Return false if not in an idle state
