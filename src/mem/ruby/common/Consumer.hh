@@ -88,6 +88,11 @@ class Consumer
     void scheduleEventAbsolute(Tick evt_time);
     void scheduleEvent(Cycles time_delta);
     void clearWakeupTicks();
+    std::set<Tick> &
+    getWakeupTicks()
+    {
+        return m_wakeup_ticks;
+    }
 
   private:
     std::set<Tick> m_wakeup_ticks;

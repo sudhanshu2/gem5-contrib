@@ -45,6 +45,8 @@
 
 #include <cstdio>
 #include <list>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "base/compiler.hh"
@@ -282,6 +284,12 @@ RubySystem::memWriteback()
         curr_eventq->unlock();
     }
 
+    std::vector<std::set<Tick>> original_wakeup_ticks;
+    for (Consumer *consumer : rubyConsumers()) {
+        original_wakeup_ticks.push_back(std::move(consumer->getWakeupTicks()));
+        consumer->clearWakeupTicks();
+    }
+
     // Restore original event queue
     curEventQueue(orig_eventq);
 
@@ -314,6 +322,14 @@ RubySystem::memWriteback()
         }
 
         curr_eventq->unlock();
+    }
+
+    assert(original_wakeup_ticks.size() == rubyConsumers().size());
+    size_t consumer_idx = 0;
+    for (Consumer *consumer : rubyConsumers()) {
+        consumer->getWakeupTicks() =
+            std::move(original_wakeup_ticks[consumer_idx]);
+        consumer_idx++;
     }
 
     // Restore original event queue
