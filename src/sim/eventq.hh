@@ -616,6 +616,9 @@ class EventQueue
     //! List of events added by other threads to this event queue.
     std::list<Event*> async_queue;
 
+    // Periodically report progress from the main queue
+    Tick next_progress_tick = 100000;
+
     /**
      * Lock protecting event handling.
      *
