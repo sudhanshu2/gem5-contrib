@@ -230,6 +230,11 @@ EventQueue::serviceOne()
     gem5_assert(getCurTick() <= nextTick(),
                 "%s: event at %llu is before queue position %llu", name(),
                 nextTick(), getCurTick());
+    if (getCurTick() >= next_progress_tick) {
+        warn("Simulation progress: queue %s curTick %llu", name(),
+             getCurTick());
+        next_progress_tick = getCurTick() + 10000000;
+    }
     Event *event = head;
     Event *next = head->nextInBin;
     event->flags.clear(Event::Scheduled);
