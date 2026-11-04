@@ -386,7 +386,7 @@ namespace ruby
 namespace ${protocol}
 {
 
-extern std::stringstream ${ident}_transitionComment;
+extern thread_local std::stringstream ${ident}_transitionComment;
 
 class $c_ident : public AbstractController
 {
@@ -668,7 +668,7 @@ namespace ${protocol}
 {
 
 // for adding information to the protocol debug trace
-std::stringstream ${ident}_transitionComment;
+thread_local std::stringstream ${ident}_transitionComment;
 
 #ifndef NDEBUG
 #define APPEND_TRANSITION_COMMENT(str) (${ident}_transitionComment << str)
