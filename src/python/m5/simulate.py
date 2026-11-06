@@ -64,6 +64,7 @@ from . import (
 from .citations import gather_citations
 from .util import (
     fatal,
+    inform,
     warn,
 )
 
@@ -255,9 +256,11 @@ def _create_cpp_objects(root, ckpt_dir):
 
     # Restore checkpoint (if any)
     if ckpt_dir:
+        inform(f"Restoring checkpoint from {ckpt_dir}")
         _drain_manager.preCheckpointRestore()
         ckpt = _m5_core.getCheckpoint(ckpt_dir)
         _m5_core.loadStateAll(ckpt, simobj_capsules)
+        inform(f"Finished restoring checkpoint from {ckpt_dir}")
     else:
         _m5_core.initStateAll(simobj_capsules)
 
