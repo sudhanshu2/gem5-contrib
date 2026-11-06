@@ -47,7 +47,10 @@
  * Declaration of SimpleTimingPort.
  */
 
+#include <atomic>
+
 #include "mem/qport.hh"
+#include "sim/drain.hh"
 
 namespace gem5
 {
@@ -59,7 +62,7 @@ class SimObject;
  * recvFunctional and recvTimingReq through recvAtomic. It is always a
  * response port.
  */
-class SimpleTimingPort : public QueuedResponsePort
+class SimpleTimingPort : public QueuedResponsePort, public Drainable
 {
 
   private:
@@ -72,6 +75,12 @@ class SimpleTimingPort : public QueuedResponsePort
      */
     RespPacketQueue queueImpl;
 
+    EventQueue *eventq;
+
+    std::atomic<unsigned> pendingReqs = 0;
+
+    void processTimingReq(PacketPtr pkt);
+
   protected:
 
     /** Implemented using recvAtomic(). */
@@ -81,12 +90,6 @@ class SimpleTimingPort : public QueuedResponsePort
     bool recvTimingReq(PacketPtr pkt);
 
     virtual Tick recvAtomic(PacketPtr pkt) = 0;
-
-    /**
-     * Upstream caches need this packet until true is returned, so
-     * hold it for deletion until a subsequent call
-     */
-    std::unique_ptr<Packet> pendingDelete;
 
   public:
 
@@ -105,6 +108,7 @@ class SimpleTimingPort : public QueuedResponsePort
 
     virtual ~SimpleTimingPort() { }
 
+    DrainState drain() override;
 };
 
 } // namespace gem5

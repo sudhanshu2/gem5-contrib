@@ -39,15 +39,27 @@
  */
 
 #include "mem/tport.hh"
+
+#include "base/trace.hh"
+#include "debug/SimpleTimingPort.hh"
+#include "sim/eventq.hh"
 #include "sim/sim_object.hh"
 
 namespace gem5
 {
 
-SimpleTimingPort::SimpleTimingPort(const std::string& _name,
-                                   SimObject* _owner) :
-    QueuedResponsePort(_name, queueImpl), queueImpl(*_owner, *this)
+SimpleTimingPort::SimpleTimingPort(const std::string &_name, SimObject *_owner)
+    : QueuedResponsePort(_name, queueImpl),
+      queueImpl(*_owner, *this),
+      eventq(_owner->eventQueue())
+{}
+
+DrainState
+SimpleTimingPort::drain()
 {
+    DPRINTF(SimpleTimingPort, "drain: %u pending requests\n",
+            pendingReqs.load());
+    return pendingReqs == 0 ? DrainState::Drained : DrainState::Draining;
 }
 
 void
@@ -69,6 +81,27 @@ SimpleTimingPort::recvTimingReq(PacketPtr pkt)
         panic("SimpleTimingPort should never see packets with the "
               "cacheResponding flag set\n");
 
+    Tick latency = pkt->headerDelay + pkt->payloadDelay;
+    pkt->headerDelay = pkt->payloadDelay = 0;
+
+    pendingReqs++;
+    DPRINTF(SimpleTimingPort,
+            "recvTimingReq: %s addr %#x, process at "
+            "%llu (delay %llu), %u pending\n",
+            pkt->cmdString(), pkt->getAddr(), curTick() + latency, latency,
+            pendingReqs.load());
+    EventFunctionWrapper *event =
+        new EventFunctionWrapper([this, pkt] { processTimingReq(pkt); },
+                                 "simpleTimingPort.processTimingReq", true);
+    eventq->schedule(event, curTick() + latency);
+    return true;
+}
+
+void
+SimpleTimingPort::processTimingReq(PacketPtr pkt)
+{
+    DPRINTF(SimpleTimingPort, "processTimingReq: %s addr %#x\n",
+            pkt->cmdString(), pkt->getAddr());
     bool needsResponse = pkt->needsResponse();
     Tick latency = recvAtomic(pkt);
     // turn packet around to go back to requestor if response expected
@@ -76,13 +109,21 @@ SimpleTimingPort::recvTimingReq(PacketPtr pkt)
         // recvAtomic() should already have turned packet into
         // atomic response
         assert(pkt->isResponse());
+        DPRINTF(SimpleTimingPort,
+                "processTimingReq: response at %llu curtick %llu\n",
+                curTick() + latency, curTick());
         schedTimingResp(pkt, curTick() + latency);
     } else {
-        // queue the packet for deletion
-        pendingDelete.reset(pkt);
+        DPRINTF(SimpleTimingPort, "processTimingReq: no response\n");
+        delete pkt;
     }
 
-    return true;
+    pendingReqs--;
+    DPRINTF(SimpleTimingPort, "processTimingReq: %u pending\n",
+            pendingReqs.load());
+    if (pendingReqs == 0) {
+        signalDrainDone();
+    }
 }
 
 } // namespace gem5
