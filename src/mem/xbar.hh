@@ -202,7 +202,7 @@ class BaseXBar : public ClockedObject
          */
         enum State { IDLE, BUSY, RETRY };
 
-        State state;
+        std::atomic<State> state;
 
         /**
          * A deque of ports that retry should be called on because
