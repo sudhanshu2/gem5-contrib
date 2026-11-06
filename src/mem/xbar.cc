@@ -188,6 +188,8 @@ template <typename SrcType, typename DstType>
 bool
 BaseXBar::Layer<SrcType, DstType>::tryTiming(SrcType* src_port)
 {
+    EventQueue::ScopedMigration migrate(xbar.eventQueue());
+
     // if we are in the retry state, we will not see anything but the
     // retrying port (or in the case of the snoop ports the snoop
     // response port that mirrors the actual CPU-side port) as we leave
@@ -219,6 +221,8 @@ template <typename SrcType, typename DstType>
 void
 BaseXBar::Layer<SrcType, DstType>::succeededTiming(Tick busy_time)
 {
+    EventQueue::ScopedMigration migrate(xbar.eventQueue());
+
     // we should have gone from idle or retry to busy in the tryTiming
     // test
     assert(state == BUSY);
@@ -232,6 +236,8 @@ void
 BaseXBar::Layer<SrcType, DstType>::failedTiming(SrcType* src_port,
                                               Tick busy_time)
 {
+    EventQueue::ScopedMigration migrate(xbar.eventQueue());
+
     // ensure no one got in between and tried to send something to
     // this port
     assert(waitingForPeer == NULL);
@@ -312,6 +318,8 @@ template <typename SrcType, typename DstType>
 void
 BaseXBar::Layer<SrcType, DstType>::recvRetry()
 {
+    EventQueue::ScopedMigration migrate(xbar.eventQueue());
+
     // we should never get a retry without having failed to forward
     // something to this port
     assert(waitingForPeer != NULL);
