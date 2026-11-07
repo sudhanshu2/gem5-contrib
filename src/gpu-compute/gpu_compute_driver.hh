@@ -165,7 +165,7 @@ class GPUComputeDriver final : public EmulatedDriver
     /**
      * VMA structures for GPUVM memory.
      */
-    AddrRangeMap<Request::CacheCoherenceFlags, 1> gpuVmas;
+    AddrRangeMap<Request::CacheCoherenceFlags> gpuVmas;
 
     /**
      * Mtype bits {Cached, Read Write, Shared} for caches

@@ -142,7 +142,7 @@ class PhysicalMemory : public Serializable
     std::string _name;
 
     // Global address map
-    AddrRangeMap<AbstractMemory*, 1> addrMap;
+    AddrRangeMap<AbstractMemory *> addrMap;
 
     // Valid address map. Used to quickly check if an address is valid.
     // This ignores all interleaving, unlike the addrMap above.
