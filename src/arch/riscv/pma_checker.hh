@@ -134,7 +134,7 @@ class PMAChecker : public BasePMAChecker
     inline bool hasMisaligned();
 
     AddrRangeList uncacheable;
-    AddrRangeMap<bool, 3> misaligned;
+    AddrRangeMap<bool> misaligned;
 };
 
 } // namespace RiscvISA

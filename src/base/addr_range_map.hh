@@ -43,7 +43,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <list>
 #include <map>
 #include <utility>
 
@@ -58,8 +57,7 @@ namespace gem5
  * address decoding. The value stored is a template type and can be
  * e.g. a port identifier, or a pointer.
  */
-template <typename V, int max_cache_size=0>
-class AddrRangeMap
+template <typename V> class AddrRangeMap
 {
   private:
     typedef std::map<AddrRange, V> RangeMap;
@@ -174,7 +172,6 @@ class AddrRangeMap
     void
     erase(iterator p)
     {
-        cache.remove(p);
         tree.erase(p);
     }
 
@@ -184,9 +181,6 @@ class AddrRangeMap
     void
     erase(iterator p, iterator q)
     {
-        for (auto it = p; it != q; it++) {
-            cache.remove(p);
-        }
         tree.erase(p,q);
     }
 
@@ -196,7 +190,6 @@ class AddrRangeMap
     void
     clear()
     {
-        cache.erase(cache.begin(), cache.end());
         tree.erase(tree.begin(), tree.end());
     }
 
@@ -256,31 +249,6 @@ class AddrRangeMap
 
   private:
     /**
-     * Add an address range map entry to the cache.
-     *
-     * @param it Iterator to the entry in the address range map
-     */
-    void
-    addNewEntryToCache(iterator it) const
-    {
-        if (max_cache_size != 0) {
-            // If there's a cache, add this element to it.
-            if (cache.size() >= max_cache_size) {
-                // If the cache is full, move the last element to the
-                // front and overwrite it with the new value. This
-                // avoids creating or destroying elements of the list.
-                auto last = cache.end();
-                last--;
-                *last = it;
-                if (max_cache_size > 1)
-                    cache.splice(cache.begin(), cache, last);
-            } else {
-                cache.push_front(it);
-            }
-        }
-    }
-
-    /**
      * Find entry that satisfies a condition on an address range
      *
      * Searches through the ranges in the address map and returns an
@@ -294,20 +262,8 @@ class AddrRangeMap
     iterator
     find(const AddrRange &r, std::function<bool(const AddrRange)> cond)
     {
-        // Check the cache first
-        for (auto c = cache.begin(); c != cache.end(); c++) {
-            auto it = *c;
-            if (cond(it->first)) {
-                // If this entry matches, promote it to the front
-                // of the cache and return it.
-                cache.splice(cache.begin(), cache, c);
-                return it;
-            }
-        }
-
         iterator next = tree.upper_bound(r);
         if (next != end() && cond(next->first)) {
-            addNewEntryToCache(next);
             return next;
         }
         if (next == begin())
@@ -318,7 +274,6 @@ class AddrRangeMap
         do {
             i = next;
             if (cond(i->first)) {
-                addNewEntryToCache(i);
                 return i;
             }
             // Keep looking if the next range merges with the current one.
@@ -335,14 +290,6 @@ class AddrRangeMap
     }
 
     RangeMap tree;
-
-    /**
-     * A list of iterator that correspond to the max_cache_size most
-     * recently used entries in the address range map. This mainly
-     * used to optimize lookups. The elements in the list should
-     * always be valid iterators of the tree.
-     */
-    mutable std::list<iterator> cache;
 };
 
 } // namespace gem5

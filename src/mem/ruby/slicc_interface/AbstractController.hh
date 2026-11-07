@@ -498,8 +498,7 @@ class AbstractController : public ClockedObject, public Consumer
     /** The address range to which the controller responds on the CPU side. */
     const AddrRangeList addrRanges;
 
-    std::unordered_map<MachineType, AddrRangeMap<MachineID, 3>>
-      downstreamAddrMap;
+    std::unordered_map<MachineType, AddrRangeMap<MachineID>> downstreamAddrMap;
 
     NetDest downstreamDestinations;
     NetDest upstreamDestinations;

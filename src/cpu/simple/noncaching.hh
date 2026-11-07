@@ -58,7 +58,7 @@ class NonCachingSimpleCPU : public AtomicSimpleCPU
     void verifyMemoryMode() const override;
 
   protected:
-    AddrRangeMap<MemBackdoorPtr, 1> memBackdoors;
+    AddrRangeMap<MemBackdoorPtr> memBackdoors;
 
     Tick sendPacket(RequestPort &port, const PacketPtr &pkt) override;
     Tick fetchInstMem() override;

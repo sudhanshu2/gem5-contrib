@@ -62,7 +62,7 @@ class ClockedObject;
 class DmaPort : public RequestPort, public Drainable
 {
   protected:
-    AddrRangeMap<MemBackdoorPtr, 1> memBackdoors;
+    AddrRangeMap<MemBackdoorPtr> memBackdoors;
 
     /**
      * Take the first request on the transmit list and attempt to send a timing
