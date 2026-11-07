@@ -138,6 +138,13 @@ class NoncoherentXBar : public BaseXBar
         {
             return xbar.getAddrRanges();
         }
+
+        void
+        recvRespRetry() override
+        {
+            EventQueue::ScopedMigration migrate(xbar.eventQueue());
+            QueuedResponsePort::recvRespRetry();
+        }
     };
 
     /**
