@@ -189,6 +189,8 @@ RubyPort::PioRequestPort::recvTimingResp(PacketPtr pkt)
 
 bool RubyPort::MemRequestPort::recvTimingResp(PacketPtr pkt)
 {
+    EventQueue::ScopedMigration migrate(owner.eventQueue());
+
     // got a response from a device
     assert(pkt->isResponse());
     assert(!pkt->htmTransactionFailedInCache());
