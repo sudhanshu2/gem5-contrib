@@ -775,7 +775,9 @@ Sequencer::hitCallback(SequencerRequest *srequest, DataBlock &data,
 
     // update the data unless it is a non-data-carrying flush
     if (m_ruby_system->getWarmupEnabled()) {
-        data.setData(pkt);
+        if (type == RubyRequestType_ST) {
+            data.setData(pkt);
+        }
     } else if (!pkt->isFlush() && !pkt->isCleanInvalidateRequest()) {
         if ((type == RubyRequestType_LD) || (type == RubyRequestType_IFETCH) ||
             (type == RubyRequestType_RMW_Read) ||
