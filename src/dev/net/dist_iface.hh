@@ -307,7 +307,10 @@ class DistIface : public Drainable, public Serializable
          * Only the firstly instantiated DistIface object will
          * call this constructor.
          */
-        SyncEvent() : GlobalSyncEvent(Sim_Exit_Pri, 0), _draining(false) {}
+        SyncEvent() : GlobalSyncEvent(Sim_Exit_Pri, 0), _draining(false)
+        {
+            enableAutomaticRepeat = false;
+        }
 
         ~SyncEvent() {}
         /**

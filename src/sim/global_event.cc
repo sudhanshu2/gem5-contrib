@@ -147,18 +147,22 @@ GlobalEvent::BarrierEvent::process()
 void
 GlobalSyncEvent::BarrierEvent::process()
 {
-    globalBarrier();
-    curEventQueue()->handleAsyncInsertions();
+  globalBarrier();
+
+  if (syncEvent()->repeat && syncEvent()->enableAutomaticRepeat) {
+      curEventQueue()->schedule(this, syncEvent()->nextWhen);
+  }
+
+  curEventQueue()->handleAsyncInsertions();
 }
 
 void
 GlobalSyncEvent::process()
 {
     if (repeat) {
-        Tick next_sim_quantum = curTick() + repeat;
-        schedule(next_sim_quantum);
+        nextWhen = curTick() + repeat;
         for (int i = 0; i < numMainEventQueues; ++i) {
-            mainEventQueue[i]->setNextSimQuantum(next_sim_quantum);
+            mainEventQueue[i]->setNextSimQuantum(nextWhen);
         }
     }
 }
