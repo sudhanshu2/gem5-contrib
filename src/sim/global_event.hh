@@ -30,10 +30,10 @@
 #ifndef __SIM_GLOBAL_EVENT_HH__
 #define __SIM_GLOBAL_EVENT_HH__
 
-#include <barrier>
 #include <mutex>
 #include <vector>
 
+#include "base/spin_barrier.hh"
 #include "sim/eventq.hh"
 
 namespace gem5
@@ -121,7 +121,7 @@ class BaseGlobalEvent : public EventBase
     };
 
     // The barrier that all threads wait on before performing a global event.
-    std::barrier<ProcessBarrier> barrier;
+    SpinBarrier<ProcessBarrier> barrier;
 
     //! The individual local event instances (one per thread/event queue).
     std::vector<BarrierEvent *> barrierEvent;
