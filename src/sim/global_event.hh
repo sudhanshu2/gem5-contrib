@@ -229,14 +229,20 @@ class GlobalSyncEvent : public BaseGlobalEventTemplate<GlobalSyncEvent>
         BarrierEvent(Base *global_event, Priority p, Flags f)
             : Base::BarrierEvent(global_event, p, f)
         { }
+
+      private:
+        GlobalSyncEvent *
+        syncEvent() const
+        {
+            return static_cast<GlobalSyncEvent *>(_globalEvent);
+        }
     };
 
-    GlobalSyncEvent(Priority p, Flags f)
-        : Base(p, f), repeat(0)
+    GlobalSyncEvent(Priority p, Flags f) : Base(p, f), repeat(0), nextWhen(0)
     { }
 
     GlobalSyncEvent(Tick when, Tick _repeat, Priority p, Flags f)
-        : Base(p, f), repeat(_repeat)
+        : Base(p, f), repeat(_repeat), nextWhen(when)
     {
         schedule(when);
         for (int i = 0; i < numMainEventQueues; ++i) {
@@ -251,6 +257,8 @@ class GlobalSyncEvent : public BaseGlobalEventTemplate<GlobalSyncEvent>
     const char *description() const;
 
     Tick repeat;
+    Tick nextWhen;
+    bool enableAutomaticRepeat = true;
 };
 
 } // namespace gem5
