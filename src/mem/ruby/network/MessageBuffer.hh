@@ -92,14 +92,18 @@ class MessageBuffer : public SimObject
     Tick readyTime() const;
 
     void
-    delayHead(Tick current_time, Tick delta, bool ruby_is_random,
-              bool ruby_warmup)
+    delayHead(Tick current_time, Tick delta, bool ruby_warmup)
     {
-        MsgPtr m = m_prio_heap.front();
-        std::pop_heap(m_prio_heap.begin(), m_prio_heap.end(),
-                      std::greater<MsgPtr>());
-        m_prio_heap.pop_back();
-        enqueue(m, current_time, delta, ruby_is_random, ruby_warmup);
+        // Retry the head later but ensure that it is still at the front of the
+        // queue. This prevents an edge case where a line is blocked and a
+        // newer request arrives. The blocked head is increased by a delta
+        // that may be less that the newly arrived line's arrive time.
+        recycle(current_time, delta);
+
+        if (!ruby_warmup) {
+            m_last_arrival_time =
+                std::max(m_last_arrival_time, current_time + delta);
+        }
     }
 
     bool areNSlotsAvailable(unsigned int n, Tick curTime);
