@@ -31,11 +31,11 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <utility>
 
 #include "base/compiler.hh"
+#include "base/logging.hh"
 
 namespace gem5
 {
@@ -77,17 +77,19 @@ template <class CompletionFunction> class Barrier
     static constexpr std::chrono::nanoseconds defaultSpinBudget{100000};
 
     /** Barrier for `expected` threads with the default spin budget. */
-    Barrier(std::ptrdiff_t expected, CompletionFunction completion)
+    Barrier(uint32_t expected, CompletionFunction completion)
         : Barrier(expected, std::move(completion), defaultSpinBudget)
     {}
 
     /** Barrier with an explicit spin budget (zero parks at once). */
-    Barrier(std::ptrdiff_t expected, CompletionFunction completion,
+    Barrier(uint32_t expected, CompletionFunction completion,
             std::chrono::nanoseconds spin_budget)
         : expected(expected),
           spinBudget(spin_budget),
           completion(std::move(completion))
-    {}
+    {
+        panic_if(expected == 0, "Barrier needs at least one thread.");
+    }
 
     void
     arrive_and_wait()
@@ -150,11 +152,11 @@ template <class CompletionFunction> class Barrier
         parked.fetch_sub(1, std::memory_order_seq_cst);
     }
 
-    const std::ptrdiff_t expected;
+    const uint32_t expected;
     const std::chrono::nanoseconds spinBudget;
     CompletionFunction completion;
     /** Threads arrived in the current generation (own cache line). */
-    alignas(64) std::atomic<std::ptrdiff_t> arrived{0};
+    alignas(64) std::atomic<uint32_t> arrived{0};
     /**
      * Incremented once per completed barrier; waiters spin on it. Only
      * compared for equality, so wrapping around is harmless.
