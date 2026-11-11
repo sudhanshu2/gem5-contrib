@@ -32,6 +32,7 @@
 #include <atomic>
 #include <barrier>
 #include <cassert>
+#include <csignal>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -41,6 +42,7 @@
 
 #include "base/barrier.hh"
 #include "base/logging.hh"
+#include "base/thread.hh"
 #include "sim/eventq.hh"
 #include "sim/global_event.hh"
 
@@ -325,9 +327,14 @@ class SimulatorThreads
     void
     thread_main(uint32_t worker_id)
     {
+        // Keep SIGINT (ctrl-c) off the subordinate workers so that it is
+        // always delivered to the main thread (worker 0), which handles it.
+        blockSignal(SIGINT);
+
         while (true) {
             barrier.arrive_and_wait();
             if (terminate) {
+                unblockSignal(SIGINT);
                 break;
             }
             runPhases(worker_id);
