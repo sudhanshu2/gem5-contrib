@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2003-2005 The Regents of The University of Michigan
  * Copyright 2021 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,13 +29,36 @@
 #ifndef __CPU_NOP_STATIC_INST_HH__
 #define __CPU_NOP_STATIC_INST_HH__
 
-#include "cpu/static_inst_fwd.hh"
+#include "arch/generic/pcstate.hh"
+#include "cpu/static_inst.hh"
 
 namespace gem5
 {
 
-/// Pointer to a statically allocated generic "nop" instruction object.
-extern StaticInstPtr nopStaticInstPtr;
+class NopStaticInst : public StaticInst
+{
+  public:
+    NopStaticInst() : StaticInst("gem5 nop", No_OpClass) {}
+
+    Fault
+    execute(ExecContext *xc, trace::InstRecord *traceData) const override
+    {
+        return NoFault;
+    }
+
+    void
+    advancePC(PCStateBase &pc) const override
+    {
+        pc.advance();
+    }
+
+    std::string
+    generateDisassembly(Addr pc,
+                        const loader::SymbolTable *symtab) const override
+    {
+        return mnemonic;
+    }
+};
 
 } // namespace gem5
 
