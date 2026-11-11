@@ -48,6 +48,7 @@
 #include "arch/generic/mmu.hh"
 #include "base/random.hh"
 #include "base/statistics.hh"
+#include "cpu/nop_static_inst.hh"
 #include "cpu/o3/bac.hh"
 #include "cpu/o3/comm.hh"
 #include "cpu/o3/dyn_inst_ptr.hh"
@@ -364,6 +365,9 @@ class Fetch
 
     /** The decoder. */
     InstDecoder *decoder[MaxThreads];
+
+    /** Nop should be defined per fetch object to prevent race condition. */
+    const StaticInstPtr nopStaticInstPtr = new NopStaticInst();
 
     RequestPort &getInstPort() { return icachePort; }
 
