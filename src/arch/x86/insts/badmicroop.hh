@@ -38,7 +38,9 @@
 #ifndef __ARCH_X86_INSTS_BADMICROOP_HH__
 #define __ARCH_X86_INSTS_BADMICROOP_HH__
 
-#include "cpu/static_inst_fwd.hh"
+#include "arch/generic/debugfaults.hh"
+#include "arch/x86/insts/microdebug.hh"
+#include "cpu/static_inst.hh"
 
 namespace gem5
 {
@@ -46,7 +48,14 @@ namespace gem5
 namespace X86ISA
 {
 
-extern const StaticInstPtr badMicroop;
+/** Create a new bad microop. */
+inline StaticInstPtr
+makeBadMicroop()
+{
+    return new MicroDebug(ExtMachInst{}, "panic", "BAD",
+                          StaticInst::IsMicroop | StaticInst::IsLastMicroop,
+                          new GenericISA::M5PanicFault("Invalid microop!"));
+}
 
 } // namespace X86ISA
 } // namespace gem5

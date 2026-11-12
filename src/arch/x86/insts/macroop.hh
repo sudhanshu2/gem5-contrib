@@ -75,6 +75,9 @@ class MacroopBase : public X86StaticInst
 
     StaticInstPtr * microops;
 
+    /** A per-CPU badMicroop prevents race conditions. */
+    const StaticInstPtr badMicroop = makeBadMicroop();
+
     StaticInstPtr
     fetchMicroop(MicroPC microPC) const override
     {

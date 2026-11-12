@@ -49,6 +49,9 @@ class MicrocodeRom
 
     GenFunc *genFuncs;
 
+    /** A per-CPU and ROM badMicroop prevents race conditions. */
+    const StaticInstPtr badMicroop = X86ISA::makeBadMicroop();
+
   public:
     //Constructor.
     MicrocodeRom();
@@ -64,7 +67,7 @@ class MicrocodeRom
     {
         microPC = normalMicroPC(microPC);
         if (microPC >= numMicroops)
-            return X86ISA::badMicroop;
+            return badMicroop;
         else
             return genFuncs[microPC](curMacroop);
     }
