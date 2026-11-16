@@ -161,9 +161,11 @@ GlobalSyncEvent::process()
 {
     if (repeat) {
         nextWhen = curTick() + repeat;
++#ifndef NDEBUG
         for (int i = 0; i < numMainEventQueues; ++i) {
             mainEventQueue[i]->setNextSimQuantum(nextWhen);
         }
+#endif
     }
 }
 

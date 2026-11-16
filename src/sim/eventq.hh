@@ -608,7 +608,7 @@ class EventQueue
     std::string objName;
     Event *head;
     Tick _curTick;
-    Tick _nextSimQuantum;
+    Tick _nextSimQuantum = 0;
 
     //! Mutex to protect async queue.
     FairUncontendedMutex async_queue_mutex;
@@ -742,7 +742,9 @@ class EventQueue
     void name(const std::string &st) { objName = st; }
     /** @}*/ //end of api_eventq group
 
+#ifndef NDEBUG
     void setNextSimQuantum(Tick when) { _nextSimQuantum = when; }
+#endif
 
     /**
      * Schedule the given event on this queue. Safe to call from any thread.
