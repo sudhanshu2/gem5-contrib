@@ -45,6 +45,7 @@
 #include <memory>
 #include <string>
 
+#include "base/async_queue.hh"
 #include "base/debug.hh"
 #include "base/fair_adaptive_mutex.hh"
 #include "base/flags.hh"
@@ -615,11 +616,8 @@ class EventQueue
     Tick _curTick;
     Tick _nextSimQuantum;
 
-    //! Mutex to protect async queue.
-    FairAdaptiveMutex async_queue_mutex;
-
     //! List of events added by other threads to this event queue.
-    std::list<Event*> async_queue;
+    AsyncQueue<Event *> async_queue;
 
     // Periodically report progress from the main queue
     Tick next_progress_tick = 100000;

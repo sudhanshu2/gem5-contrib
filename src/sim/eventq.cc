@@ -470,24 +470,18 @@ EventQueue::asyncInsert(Event *event)
     gem5_assert(
         event->when() >= _nextSimQuantum,
         "Asynchronous event must be scheduled after the next sim quantum");
-    async_queue_mutex.lock();
-    async_queue.push_back(event);
     event->trace("async inserted");
-    async_queue_mutex.unlock();
+    async_queue.push(event);
 }
 
 void
 EventQueue::handleAsyncInsertions()
 {
     assert(this == curEventQueue());
-    async_queue_mutex.lock();
-
-    while (!async_queue.empty()) {
-        insert(async_queue.front());
-        async_queue.pop_front();
+    size_t queue_size = async_queue.size();
+    for (size_t i = 0; i < queue_size; i++) {
+        insert(async_queue.pop());
     }
-
-    async_queue_mutex.unlock();
 }
 
 } // namespace gem5
