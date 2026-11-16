@@ -33,6 +33,7 @@
 #define __MEM_RUBY_SYSTEM_GPU_COALESCER_HH__
 
 #include <iostream>
+#include <list>
 #include <unordered_map>
 
 #include "base/statistics.hh"

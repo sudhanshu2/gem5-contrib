@@ -49,6 +49,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <list>
 #include <sstream>
 #include <string>
 

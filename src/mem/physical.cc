@@ -49,6 +49,7 @@
 #include <climits>
 #include <cstdio>
 #include <iostream>
+#include <list>
 #include <string>
 
 #include "base/intmath.hh"

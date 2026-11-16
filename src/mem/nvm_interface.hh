@@ -46,6 +46,8 @@
 #ifndef __NVM_INTERFACE_HH__
 #define __NVM_INTERFACE_HH__
 
+#include <list>
+
 #include "mem/mem_interface.hh"
 #include "params/NVMInterface.hh"
 

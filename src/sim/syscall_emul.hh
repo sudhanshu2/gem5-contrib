@@ -86,6 +86,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <list>
 #include <memory>
 #include <string>
 

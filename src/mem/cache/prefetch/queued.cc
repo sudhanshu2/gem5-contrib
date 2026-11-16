@@ -38,6 +38,7 @@
 #include "mem/cache/prefetch/queued.hh"
 
 #include <cassert>
+#include <list>
 
 #include "arch/generic/tlb.hh"
 #include "base/logging.hh"

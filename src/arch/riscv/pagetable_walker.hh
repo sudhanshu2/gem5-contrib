@@ -39,6 +39,7 @@
 #ifndef __ARCH_RISCV_TABLE_WALKER_HH__
 #define __ARCH_RISCV_TABLE_WALKER_HH__
 
+#include <list>
 #include <vector>
 
 #include "arch/generic/mmu.hh"

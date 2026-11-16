@@ -31,6 +31,7 @@
 
 #include "arch/amdgpu/vega/pagetable_walker.hh"
 
+#include <list>
 #include <memory>
 
 #include "arch/amdgpu/vega/faults.hh"

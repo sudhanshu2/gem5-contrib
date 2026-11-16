@@ -41,6 +41,7 @@
 #include "mem/ruby/network/MessageBuffer.hh"
 
 #include <cassert>
+#include <list>
 
 #include "base/cprintf.hh"
 #include "base/logging.hh"

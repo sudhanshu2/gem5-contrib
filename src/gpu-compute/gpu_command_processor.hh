@@ -45,6 +45,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <list>
 
 #include "arch/amdgpu/vega/gpu_registers.hh"
 #include "base/logging.hh"

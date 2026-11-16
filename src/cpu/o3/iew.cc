@@ -45,6 +45,7 @@
 
 #include "cpu/o3/iew.hh"
 
+#include <list>
 #include <queue>
 #include <string>
 

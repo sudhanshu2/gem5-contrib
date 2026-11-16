@@ -27,6 +27,8 @@
 
 #include "systemc/core/port.hh"
 
+#include <list>
+
 #include "base/logging.hh"
 #include "systemc/core/process.hh"
 #include "systemc/core/sensitivity.hh"

@@ -32,6 +32,8 @@
 #ifndef __DEV_GPU_SYSTEM_HUB_HH__
 #define __DEV_GPU_SYSTEM_HUB_HH__
 
+#include <list>
+
 #include "dev/dma_device.hh"
 #include "params/AMDGPUSystemHub.hh"
 

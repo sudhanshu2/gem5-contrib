@@ -38,6 +38,7 @@
 #ifndef __ARCH_X86_PAGE_TABLE_WALKER_HH__
 #define __ARCH_X86_PAGE_TABLE_WALKER_HH__
 
+#include <list>
 #include <vector>
 
 #include "arch/generic/mmu.hh"

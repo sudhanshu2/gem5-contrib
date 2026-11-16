@@ -29,6 +29,8 @@
 #ifndef __DEV_NET_SINIC_HH__
 #define __DEV_NET_SINIC_HH__
 
+#include <list>
+
 #include "base/compiler.hh"
 #include "base/inet.hh"
 #include "base/statistics.hh"

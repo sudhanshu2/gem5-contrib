@@ -39,6 +39,7 @@
 #define __MEM_RUBY_STRUCTURES_MN_TBESTORAGE_HH__
 
 #include <cassert>
+#include <list>
 #include <string>
 #include <vector>
 

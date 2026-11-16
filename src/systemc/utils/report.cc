@@ -27,6 +27,8 @@
 
 #include "systemc/utils/report.hh"
 
+#include <list>
+
 namespace sc_gem5
 {
 

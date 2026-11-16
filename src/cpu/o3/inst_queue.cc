@@ -41,6 +41,7 @@
 
 #include "cpu/o3/inst_queue.hh"
 
+#include <list>
 #include <vector>
 
 #include "arch/generic/isa.hh"

@@ -40,6 +40,7 @@
 
 #include "mem/abstract_mem.hh"
 
+#include <list>
 #include <vector>
 
 #include "base/addr_range_map.hh"

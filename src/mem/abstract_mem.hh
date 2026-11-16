@@ -46,6 +46,8 @@
 #ifndef __MEM_ABSTRACT_MEMORY_HH__
 #define __MEM_ABSTRACT_MEMORY_HH__
 
+#include <list>
+
 #include "base/addr_range_map.hh"
 #include "mem/backdoor.hh"
 #include "mem/port.hh"

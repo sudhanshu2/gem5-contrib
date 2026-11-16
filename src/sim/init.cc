@@ -43,6 +43,7 @@
 
 #include "sim/init.hh"
 
+#include <list>
 #include <map>
 #include <string>
 

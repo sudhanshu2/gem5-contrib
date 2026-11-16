@@ -29,6 +29,8 @@
 #ifndef __ARCH_SPARC_TLB_HH__
 #define __ARCH_SPARC_TLB_HH__
 
+#include <list>
+
 #include "arch/generic/tlb.hh"
 #include "arch/sparc/asi.hh"
 #include "arch/sparc/tlb_map.hh"

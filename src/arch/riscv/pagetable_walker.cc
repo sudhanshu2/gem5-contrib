@@ -50,6 +50,7 @@
 
 #include "arch/riscv/pagetable_walker.hh"
 
+#include <list>
 #include <memory>
 
 #include "arch/riscv/faults.hh"

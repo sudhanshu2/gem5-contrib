@@ -42,6 +42,7 @@
 #include "cpu/o3/commit.hh"
 
 #include <algorithm>
+#include <list>
 #include <set>
 #include <string>
 

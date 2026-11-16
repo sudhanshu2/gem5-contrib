@@ -35,6 +35,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <list>
 
 #include "gpu-compute/pool_manager.hh"
 #include "params/DynPoolManager.hh"

@@ -38,6 +38,7 @@
 #include "cpu/o3/bac.hh"
 
 #include <algorithm>
+#include <list>
 
 #include "arch/generic/pcstate.hh"
 #include "base/logging.hh"

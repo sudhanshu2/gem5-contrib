@@ -41,6 +41,7 @@
 #ifndef __CPU_O3_ROB_HH__
 #define __CPU_O3_ROB_HH__
 
+#include <list>
 #include <string>
 #include <utility>
 #include <vector>

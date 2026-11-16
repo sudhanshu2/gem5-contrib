@@ -42,6 +42,7 @@
 #ifndef __CPU_SIMPLE_BASE_HH__
 #define __CPU_SIMPLE_BASE_HH__
 
+#include <list>
 #include <memory>
 
 #include "arch/generic/pcstate.hh"

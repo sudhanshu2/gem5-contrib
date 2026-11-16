@@ -41,6 +41,8 @@
 #ifndef __MEM_FLASH_MEM_HH__
 #define __MEM_FLASH_MEM_HH__
 
+#include <list>
+
 #include "base/random.hh"
 #include "mem/abstract_mem.hh"
 #include "params/CfiMemory.hh"

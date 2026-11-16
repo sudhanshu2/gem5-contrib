@@ -37,6 +37,8 @@
 
 #include "dev/arm/smmu_v3_transl.hh"
 
+#include <list>
+
 #include "arch/arm/pagetable.hh"
 #include "debug/SMMUv3.hh"
 #include "debug/SMMUv3Hazard.hh"

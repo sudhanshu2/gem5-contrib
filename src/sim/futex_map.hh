@@ -29,6 +29,7 @@
 #ifndef __FUTEX_MAP_HH__
 #define __FUTEX_MAP_HH__
 
+#include <list>
 #include <unordered_map>
 #include <unordered_set>
 

@@ -41,6 +41,8 @@
 
 #include "cpu/o3/decode.hh"
 
+#include <list>
+
 #include "arch/generic/pcstate.hh"
 #include "base/logging.hh"
 #include "base/stats/group.hh"

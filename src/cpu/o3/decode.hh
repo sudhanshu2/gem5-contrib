@@ -42,6 +42,7 @@
 #ifndef __CPU_O3_DECODE_HH__
 #define __CPU_O3_DECODE_HH__
 
+#include <list>
 #include <queue>
 
 #include "base/statistics.hh"

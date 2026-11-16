@@ -39,6 +39,7 @@
 #include <cctype>
 #include <cstring>
 #include <iomanip>
+#include <list>
 #include <string>
 
 #include "arch/arm/tracers/tarmac_parser.hh"

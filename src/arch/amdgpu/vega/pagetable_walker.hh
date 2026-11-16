@@ -32,6 +32,7 @@
 #ifndef __DEV_AMDGPU_PAGETABLE_WALKER_HH__
 #define __DEV_AMDGPU_PAGETABLE_WALKER_HH__
 
+#include <list>
 #include <vector>
 
 #include "arch/amdgpu/vega/page_walk_cache.hh"

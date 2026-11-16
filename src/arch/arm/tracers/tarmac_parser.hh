@@ -47,6 +47,7 @@
 #define __ARCH_ARM_TRACERS_TARMAC_PARSER_HH__
 
 #include <fstream>
+#include <list>
 #include <memory>
 #include <unordered_map>
 

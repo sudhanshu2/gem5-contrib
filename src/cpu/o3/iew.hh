@@ -41,6 +41,7 @@
 #ifndef __CPU_O3_IEW_HH__
 #define __CPU_O3_IEW_HH__
 
+#include <list>
 #include <queue>
 #include <set>
 

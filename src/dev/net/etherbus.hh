@@ -33,6 +33,8 @@
 #ifndef __DEV_NET_ETHERBUS_HH__
 #define __DEV_NET_ETHERBUS_HH__
 
+#include <list>
+
 #include "dev/net/etherpkt.hh"
 #include "params/EtherBus.hh"
 #include "sim/eventq.hh"

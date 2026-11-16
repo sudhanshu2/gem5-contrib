@@ -49,6 +49,7 @@
 
 #include "arch/x86/pagetable_walker.hh"
 
+#include <list>
 #include <memory>
 
 #include "arch/x86/faults.hh"

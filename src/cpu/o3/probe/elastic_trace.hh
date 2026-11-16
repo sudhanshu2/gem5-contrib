@@ -46,6 +46,7 @@
 #ifndef __CPU_O3_PROBE_ELASTIC_TRACE_HH__
 #define __CPU_O3_PROBE_ELASTIC_TRACE_HH__
 
+#include <list>
 #include <set>
 #include <unordered_map>
 #include <utility>

@@ -28,6 +28,7 @@
 #include "systemc/core/module.hh"
 
 #include <cassert>
+#include <list>
 
 #include "base/logging.hh"
 #include "systemc/ext/core/messages.hh"
