@@ -134,6 +134,7 @@ Event::releaseImpl()
 void
 EventQueue::insert(Event *event)
 {
+    assert(!inParallelMode || this == curEventQueue());
     gem5_assert(event->when() >= getCurTick(),
                 "Event must be inserted at or after the current tick.");
     // Deal with the head case
