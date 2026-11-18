@@ -66,10 +66,11 @@ namespace gem5
 
 //! forward declaration
 Event *doSimLoop(EventQueue *);
+Event *doFastSimLoop(EventQueue *);
 
 GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
 
-static std::unique_ptr<SimulatorThreads> simulatorThreads;
+static std::unique_ptr<SimulatorThreads> simulator_threads;
 
 struct DescheduleDeleter
 {
@@ -105,10 +106,8 @@ simulate(Tick num_cycles)
     DPRINTF(EnteringEventQueue, "Entering event queue @ %d. Starting "
         "simulation...\n", curTick());
 
-    if (!simulatorThreads) {
-        simulatorThreads.reset(new SimulatorThreads(numMainEventQueues,
-                                                    numSimThreads, doSimLoop));
-    }
+    
+    simulator_threads = std::make_unique<SimulatorThreads>();
 
     if (!simulate_limit_event) {
         // If the simulate_limit_event is not set, we set it to MaxTick.
@@ -131,29 +130,10 @@ simulate(Tick num_cycles)
     if (numMainEventQueues > 1) {
         fatal_if(simQuantum == 0,
                  "Quantum for multi-eventq simulation not specified");
-
-        // The barrier must run before any other event at the boundary tick.
-        // Otherwise a fast thread executes its events at tick B while a slow
-        // thread is still at B - quantum and can still send a message that
-        // arrives exactly at B (link latency == quantum), so the consumer
-        // would observe it after, rather than before, its own tick-B events.
-        const Tick first_quantum = curTick() + simQuantum;
-        // GlobalSyncEvent::process() keeps nextSimQuantum up to date for
-        // subsequent quanta; the first one of this simulate() call has to be
-        // set here, otherwise the queues keep the value left over from the
-        // previous simulate() call and asynchronously scheduled global
-        // events (e.g. "exit now") may be placed before the first barrier,
-        // where only some threads observe them: a deadlock.
-        for (uint32_t i = 0; i < numMainEventQueues; ++i) {
-            mainEventQueue[i]->setNextSimQuantum(first_quantum);
-        }
-        quantum_event.reset(new GlobalSyncEvent(first_quantum, simQuantum,
-                                                EventBase::Minimum_Pri, 0));
-
         inParallelMode = true;
     }
 
-    Event *local_event = simulatorThreads->runUntilLocalExit();
+    Event *local_event = simulator_threads->runUntilLocalExit();
     assert(local_event);
 
     // Restore normal ctrl-c operation as soon as the event queue is done
@@ -199,8 +179,8 @@ Tick get_max_tick()
 void
 terminateEventQueueThreads()
 {
-    if (simulatorThreads) {
-        simulatorThreads->terminateThreads();
+    if (simulator_threads) {
+        simulator_threads->terminateThreads();
     }
 }
 
@@ -215,19 +195,7 @@ doSimLoop(EventQueue *eventq)
 {
     // set the per thread current eventq pointer
     curEventQueue(eventq);
-    {
-        // Lock *eventq while draining async_queue at the start of the
-        // quantum. In dynamic dispatch (numThreads < numQueues), another
-        // worker thread already servicing queue 1 in the new quantum may
-        // enqueue a cross-queue event onto queue 2's async_queue before
-        // queue 2 has drained its async_queue from the previous quantum.
-        // Holding *eventq serializes that insertion against
-        // handleAsyncInsertions(), and any newly inserted cross-queue
-        // event is guaranteed to have a timestamp in at least the next
-        // quantum (never the current quantum).
-        std::lock_guard<EventQueue> lock(*eventq);
-        eventq->handleAsyncInsertions();
-    }
+    eventq->handleAsyncInsertions();
 
     bool mainQueue = eventq == getEventQueue(0);
 
@@ -273,6 +241,21 @@ doSimLoop(EventQueue *eventq)
     }
 
     // not reached... only exit is return on a BarrierEvent or async_exception
+}
+
+Event *
+doFastSimLoop(EventQueue *eventq)
+{
+    // set the per thread current eventq pointer
+    curEventQueue(eventq);
+    eventq->handleAsyncInsertions();
+
+    Event *exit_event;
+    do {
+      exit_event = eventq->serviceOne();
+    } while(exit_event == nullptr);
+
+    return exit_event;
 }
 
 } // namespace gem5

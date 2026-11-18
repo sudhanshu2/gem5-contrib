@@ -109,6 +109,8 @@ class BaseGlobalEvent : public EventBase
     //! The individual local event instances (one per thread/event queue).
     std::vector<BarrierEvent *> barrierEvent;
 
+    bool isSimQuantumEvent = false;
+
   public:
     static void
     releaseBarrierEvent(Event *event)
@@ -180,6 +182,8 @@ class BaseGlobalEvent : public EventBase
 
     void deschedule();
     void reschedule(Tick when);
+
+    bool isSimQuantum() const { return isSimQuantumEvent; }
 };
 
 
@@ -277,6 +281,48 @@ class GlobalSyncEvent : public BaseGlobalEventTemplate<GlobalSyncEvent>
 
     Tick repeat;
 };
+
+class GlobalFastSyncEvent : public BaseGlobalEventTemplate<GlobalFastSyncEvent>
+{
+  public:
+    typedef BaseGlobalEventTemplate<GlobalFastSyncEvent> Base;
+
+    class BarrierEvent : public Base::BarrierEvent
+    {
+      public:
+        BarrierEvent(Base *global_event, Priority p, Flags f)
+            : Base::BarrierEvent(global_event, p, f)
+        { }
+    };
+
+    GlobalFastSyncEvent(Priority p, Flags f)
+        : Base(p, f), repeat(0)
+    { 
+      isSimQuantumEvent = true;
+    }
+
+    virtual ~GlobalFastSyncEvent (){}
+
+    void process() {
+      panic("GlobalFastSyncEvent process() should not be called");
+    }
+
+    const char *
+    description() const
+    {
+      return "GlobalFastSyncEvent";
+    }
+
+    Event *
+    getBarrierEvent(uint32_t eventq_idx) const
+    {
+        assert(eventq_idx < barrierEvent.size());
+        return barrierEvent[eventq_idx];
+    }
+
+    Tick repeat;
+};
+
 
 } // namespace gem5
 

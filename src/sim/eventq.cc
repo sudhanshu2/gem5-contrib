@@ -278,7 +278,7 @@ EventQueue::serviceOne()
 
     event->release();
 
-    return NULL;
+    return nullptr;
 }
 
 void
@@ -469,7 +469,7 @@ void
 EventQueue::asyncInsert(Event *event)
 {
     gem5_assert(
-        event->when() >= _nextSimQuantum,
+        event->when() >= curEventQueue()->nextSimQuantum(),
         "Asynchronous event must be scheduled after the next sim quantum");
     event->trace("async inserted");
     async_queue.push(event);

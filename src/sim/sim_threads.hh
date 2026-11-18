@@ -26,28 +26,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
 #ifndef __SIM_SIM_THREADS_HH__
 #define __SIM_SIM_THREADS_HH__
 
 #include <atomic>
 #include <barrier>
-#include <cassert>
-#include <csignal>
 #include <cstdint>
 #include <functional>
-#include <mutex>
+#include <list>
+#include <memory>
 #include <thread>
-#include <utility>
 #include <vector>
 
 #include "base/barrier.hh"
-#include "base/logging.hh"
-#include "base/thread.hh"
 #include "sim/eventq.hh"
-#include "sim/global_event.hh"
 
 namespace gem5
 {
+
+class GlobalFastSyncEvent;
 
 /**
  * Coordinates simulation execution across M main event queues using a pool of
@@ -65,294 +63,102 @@ namespace gem5
  */
 class SimulatorThreads
 {
-  public:
-    using QueueServiceFn = std::function<Event *(EventQueue *)>;
+  private:
+    template <typename T>
+    struct alignas(64) CacheAlignedData
+    {
+      T data;;
+    };
 
-    SimulatorThreads() = delete;
+    class SimThread
+    {
+      public:
+        SimThread(SimulatorThreads *ctrl)
+            : ctrl(ctrl), run_dynamic(true) { }
+        SimThread(SimulatorThreads *ctrl, uint32_t eventq_idx)
+            : ctrl(ctrl), run_dynamic(false), eventq_idx(eventq_idx) {}
+
+        SimThread(const SimThread &) = delete;
+        SimThread &operator=(const SimThread &) = delete;
+
+        void start();
+        void thread_main();
+        void join();
+
+      private:
+        // 1-1 queue to thread mapping sim loop
+        void runStatic();
+
+        // threads dynamically select queues for execution
+        void runDynamic();
+
+        SimulatorThreads *ctrl;
+        bool run_dynamic;
+        uint32_t eventq_idx;
+        std::thread thread;
+    };
+
+    struct BarrierFunction
+    {
+        SimulatorThreads *simulator_threads;
+        void operator()() const { simulator_threads->processBarrier(); }
+    };
+
+    // Simulator threads that execute non-main event queues
+    std::list<SimThread> threads;
+
+    // threads terminate if this flag is set
+    bool terminate;
+
+    // number of threads available to simulator (including main thread)
+    uint32_t num_threads;
+
+    // number of subordinate threads (num_threads - 1)
+    uint32_t num_subordinate_threads;
+    
+    // Used for dynamically selecting event queues
+    std::atomic<uint32_t> next_queue;
+
+    // exit events for all event queues
+    std::vector<CacheAlignedData<Event*>> phase_events;
+
+    // queues schedule their own sim quantum if this flag is set
+    bool schedule_sim_quantum_event;
+
+    // global event whose barriers are used for sim quantum
+    static GlobalFastSyncEvent *sim_quantum_event;
+
+    // shared variable for the next sim quantum tick
+    Tick next_sim_quantum;
+
+    // barriers in sim_quantum_event global event
+    std::vector<CacheAlignedData<Event*>> sim_quantum_barriers;
+
+    // barrier used to synchronize threads
+    std::unique_ptr<Barrier<BarrierFunction>> barrier;
+
+    // barrier function executed by the last thread at it
+    void processBarrier();
+
+    // main thread sim loop on the main thread
+    void runMainStatic();
+
+     // main thread and other event queues on main thread
+    void runMainDynamic();
+
+    // non-async schedule sim quantum on eventq
+    void scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq);
+
+  public:
+    SimulatorThreads();
+
     SimulatorThreads(const SimulatorThreads &) = delete;
     SimulatorThreads &operator=(SimulatorThreads &) = delete;
 
-    SimulatorThreads(uint32_t num_queues, uint32_t num_threads = 0,
-                     QueueServiceFn service_queue = defaultServiceQueue)
-        : terminate(false),
-          numQueues(num_queues),
-          numThreads(selectNumThreads(num_queues, num_threads)),
-          serviceQueue(std::move(service_queue)),
-          nextQueue(0),
-          phaseEvents(num_queues, nullptr),
-          phaseExitEvent(nullptr),
-          phaseExit(false),
-          barrier(numThreads),
-          phaseBarrier(numThreads, FinishPhase{this})
-    {
-        threads.reserve(numThreads - 1);
-    }
+    ~SimulatorThreads();
 
-    ~SimulatorThreads()
-    {
-        // This should only happen after exit has been
-        // called. Subordinate event queues should normally (assuming
-        // exit is called from Python) be waiting on the barrier when
-        // this happens.
-        //
-        // N.B.: Not terminating here would make it impossible to
-        // safely destroy the barrier.
-        terminateThreads();
-    }
-
-    Event *
-    runUntilLocalExit()
-    {
-        assert(!terminate);
-
-        // Start subordinate threads if needed.
-        if (threads.empty() && numThreads > 1) {
-            // The main thread (the one running Python) is worker 0 and
-            // participates alongside numThreads - 1 subordinate workers.
-            for (uint32_t i = 1; i < numThreads; i++) {
-                threads.emplace_back([this, i]() { thread_main(i); });
-            }
-        }
-
-        nextQueue = 0;
-        phaseExitEvent = nullptr;
-        phaseExit = false;
-
-        // This method is called from the main thread. All subordinate
-        // threads are waiting on the barrier when the function is called.
-        // The arrival of the main thread here satisfies the barrier and
-        // starts another simulation pass across the worker pool.
-        barrier.arrive_and_wait();
-        runPhases(0);
-        barrier.arrive_and_wait();
-
-        curEventQueue(mainEventQueue[0]);
-        return phaseExitEvent;
-    }
-
-    void
-    terminateThreads()
-    {
-        assert(!terminate);
-        if (threads.empty()) {
-            return;
-        }
-
-        /* This function should only be called when the simulator is
-         * handling a global exit event (typically from Python). This
-         * means that the helper threads will be waiting on the
-         * barrier. Tell the helper threads to exit and release them from
-         * their barrier. */
-        terminate = true;
-        barrier.arrive_and_wait();
-
-        /* Wait for all of the threads to terminate */
-        for (auto &t : threads) {
-            t.join();
-        }
-
-        terminate = false;
-        threads.clear();
-    }
-
-    static Event *
-    defaultServiceQueue(EventQueue *eventq)
-    {
-        curEventQueue(eventq);
-        {
-            // Lock *eventq while draining async_queue at the start of the
-            // quantum. In dynamic dispatch (numThreads < numQueues), another
-            // worker thread already servicing queue 1 in the new quantum may
-            // enqueue a cross-queue event onto queue 2's async_queue before
-            // queue 2 has drained its async_queue from the previous quantum.
-            // Holding *eventq serializes that insertion against
-            // handleAsyncInsertions(), and any newly inserted cross-queue
-            // event is guaranteed to have a timestamp in at least the next
-            // quantum (never the current quantum).
-            std::lock_guard<EventQueue> lock(*eventq);
-            eventq->handleAsyncInsertions();
-        }
-        while (!eventq->empty()) {
-            if (Event *ev = eventq->serviceOne()) {
-                return ev;
-            }
-        }
-        return nullptr;
-    }
-
-  protected:
-    struct FinishPhase
-    {
-        SimulatorThreads *simThreads;
-        void
-        operator()() const noexcept
-        {
-            simThreads->finishPhase();
-        }
-    };
-
-    static uint32_t
-    selectNumThreads(uint32_t num_queues, uint32_t requested_threads)
-    {
-        assert(num_queues >= 1);
-        if (requested_threads > num_queues) {
-            warn("Requested %u simulator threads for %u main event queues; "
-                 "clamping to %u\n",
-                 requested_threads, num_queues, num_queues);
-            return num_queues;
-        }
-        if (requested_threads == 0) {
-            return num_queues;
-        }
-        return requested_threads;
-    }
-
-    /**
-     * Advance all main event queues through one or more global-event
-     * phases (quanta, stat dumps, debug breaks, or exits) until a global
-     * exit event or async_exception terminates the simulation pass.
-     *
-     * When numThreads == numQueues, worker_id statically services
-     * mainEventQueue[worker_id] in every phase. When numThreads < numQueues,
-     * the N worker threads dynamically self-schedule queues from
-     * [0, numQueues) off the shared atomic counter nextQueue. For each
-     * queue q, serviceQueue() processes events until EventQueue::serviceOne()
-     * encounters a BaseGlobalEvent::BarrierEvent and returns it unprocessed,
-     * storing that barrier event in phaseEvents[q]. Once all numQueues
-     * queues have stopped at their barrier event for the phase, all N
-     * worker threads synchronize at phaseBarrier, which invokes
-     * finishPhase() on the last arriving thread before releasing the
-     * workers into the next phase (or exiting the loop if phaseExit is
-     * set).
-     */
-    void
-    runPhases(uint32_t worker_id)
-    {
-        do {
-            // Static 1:1 thread-to-queue mapping when numThreads == numQueues.
-            // This is required for KVM CPUs (which bind vCPU signal delivery,
-            // per-thread perf counters, and timers to the host OS thread that
-            // services the CPU's event queue) to always keep the same thread
-            // on the same queue across phases.
-            if (numThreads == numQueues) {
-                phaseEvents[worker_id] =
-                    serviceQueue(mainEventQueue[worker_id]);
-            } else {
-                while (true) {
-                    uint32_t q = nextQueue++;
-                    if (q >= numQueues) {
-                        break;
-                    }
-                    phaseEvents[q] = serviceQueue(mainEventQueue[q]);
-                }
-            }
-            phaseBarrier.arrive_and_wait();
-        } while (!phaseExit);
-    }
-
-    /**
-     * Completion function for phaseBarrier. Runs single-threaded on the
-     * last worker thread to arrive at the end of a phase while all other
-     * worker threads are blocked at phaseBarrier.
-     */
-    void
-    finishPhase() noexcept
-    {
-        // Reset the dynamic-dispatch queue counter for the next phase
-        // before phaseBarrier releases the worker threads.
-        nextQueue = 0;
-
-        // doSimLoop() only returns nullptr when mainEventQueue[0] exits
-        // early due to an async_exception (e.g., a Python exception).
-        // Signal all workers to exit runPhases() and return nullptr to
-        // simulate().
-        Event *first = phaseEvents[0];
-        if (!first) {
-            phaseExitEvent = nullptr;
-            phaseExit = true;
-            return;
-        }
-
-        // Global events are scheduled across all queues under
-        // BaseGlobalEvent::globalQMutex, so every queue must have stopped
-        // at its local BarrierEvent for the exact same BaseGlobalEvent.
-        BaseGlobalEvent *global_event = first->globalEvent();
-        panic_if(!global_event,
-                 "Queue 0 stopped at non-global event '%s' (%s)",
-                 first->name().c_str(), first->description());
-        for (uint32_t i = 1; i < numQueues; ++i) {
-            Event *ev = phaseEvents[i];
-            panic_if(!ev || ev->globalEvent() != global_event,
-                     "Queue %u stopped at '%s' (%s) instead of global event "
-                     "'%s'",
-                     i, ev ? ev->name().c_str() : "null",
-                     ev ? ev->description() : "null",
-                     global_event->description());
-        }
-
-        // Execute the global event action (e.g., GlobalSyncEvent::process()
-        // to advance the quantum, or GlobalSimLoopExitEvent::process())
-        // once on mainEventQueue[0]. Acquire mainEventQueue[0]'s service
-        // lock because global event process() implementations (such as
-        // DistIface::SyncEvent::process()) may construct
-        // EventQueue::ScopedRelease(curEventQueue()).
-        curEventQueue(mainEventQueue[0]);
-        {
-            std::lock_guard<EventQueue> lock(*mainEventQueue[0]);
-            global_event->process();
-        }
-
-        if (first->isExitEvent()) {
-            // Retain the exit event for simulate() to inspect and return;
-            // simulate() cleans it up on the next entry.
-            phaseExitEvent = first;
-            phaseExit = true;
-        } else {
-            // Release each queue's local BarrierEvent in reverse order so
-            // slot 0 (whose BarrierEvent::~BarrierEvent deletes an
-            // AutoDelete BaseGlobalEvent) runs after slots 1..numQueues-1
-            // have finished accessing their BarrierEvents.
-            for (uint32_t i = numQueues; i-- > 0;) {
-                BaseGlobalEvent::releaseBarrierEvent(phaseEvents[i]);
-            }
-        }
-    }
-
-    /**
-     * The main function for all subordinate worker threads (workers
-     * 1..numThreads-1). Each pass waits on barrier, services event queues
-     * phase-by-phase alongside worker 0 until a global exit event is
-     * reached, and synchronizes at barrier before returning to idle.
-     */
-    void
-    thread_main(uint32_t worker_id)
-    {
-        // Keep SIGINT (ctrl-c) off the subordinate workers so that it is
-        // always delivered to the main thread (worker 0), which handles it.
-        blockSignal(SIGINT);
-
-        while (true) {
-            barrier.arrive_and_wait();
-            if (terminate) {
-                unblockSignal(SIGINT);
-                break;
-            }
-            runPhases(worker_id);
-            barrier.arrive_and_wait();
-        }
-    }
-
-    std::atomic<bool> terminate;
-    uint32_t numQueues;
-    uint32_t numThreads;
-    QueueServiceFn serviceQueue;
-    std::atomic<uint32_t> nextQueue;
-    std::vector<Event *> phaseEvents;
-    Event *phaseExitEvent;
-    bool phaseExit;
-    std::vector<std::thread> threads;
-    std::barrier<> barrier;
-    Barrier<FinishPhase> phaseBarrier;
+    Event *runUntilLocalExit();
+    void terminateThreads();
 };
 
 } // namespace gem5
