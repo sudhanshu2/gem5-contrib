@@ -69,7 +69,7 @@ Event *doSimLoop(EventQueue *);
 
 GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
 
-static std::unique_ptr<SimulatorThreads> simulatorThreads;
+static std::unique_ptr<SimThreadPool> thread_pool;
 
 /** Simulate for num_cycles additional cycles.  If num_cycles is -1
  * (the default), we simulate to MAX_TICKS unless the max ticks has been set
@@ -91,9 +91,9 @@ simulate(Tick num_cycles)
     DPRINTF(EnteringEventQueue, "Entering event queue @ %d. Starting "
         "simulation...\n", curTick());
 
-    if (!simulatorThreads) {
-        simulatorThreads.reset(new SimulatorThreads(numMainEventQueues,
-                                                    numSimThreads, doSimLoop));
+    if (!thread_pool) {
+        thread_pool.reset(
+            new SimThreadPool(numMainEventQueues, numSimThreads, doSimLoop));
     }
 
     if (!simulate_limit_event) {
@@ -121,7 +121,7 @@ simulate(Tick num_cycles)
         inParallelMode = true;
     }
 
-    Event *local_event = simulatorThreads->runUntilLocalExit();
+    Event *local_event = thread_pool->runUntilLocalExit();
     assert(local_event);
 
     // Restore normal ctrl-c operation as soon as the event queue is done
@@ -167,8 +167,8 @@ Tick get_max_tick()
 void
 terminateEventQueueThreads()
 {
-    if (simulatorThreads) {
-        simulatorThreads->terminateThreads();
+    if (thread_pool) {
+        thread_pool->terminateThreads();
     }
 }
 

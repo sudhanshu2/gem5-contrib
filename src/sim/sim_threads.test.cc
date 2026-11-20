@@ -206,7 +206,7 @@ TEST_F(SimThreadsTest, DynamicDispatchProcessesGlobalEventsOnce)
 
     TestExitGlobalEvent exit_event(400);
 
-    SimulatorThreads threads(num_queues, num_threads, serviceQueue);
+    SimThreadPool threads(num_queues, num_threads, serviceQueue);
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -254,7 +254,7 @@ TEST_F(SimThreadsTest, StaticMappingBindsWorkerToQueue)
 
     const std::thread::id main_tid = std::this_thread::get_id();
     // num_threads == 0 selects the default N == M static mapping.
-    SimulatorThreads threads(num_queues, 0, service_fn);
+    SimThreadPool threads(num_queues, 0, service_fn);
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -292,7 +292,7 @@ TEST_F(SimThreadsTest, GlobalExitEventEndsPassAndIsReturnedUnreleased)
         mainEventQueue[i]->schedule(new LocalTickEvent(&later_ticks[i]), 300);
     }
 
-    SimulatorThreads threads(num_queues, 2, serviceQueue);
+    SimThreadPool threads(num_queues, 2, serviceQueue);
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -383,7 +383,7 @@ TEST_F(SimThreadsTest, AutoDeleteGlobalEventReleasesSlotZeroLast)
 
     TestExitGlobalEvent exit_event(200);
 
-    SimulatorThreads threads(num_queues, 2, serviceQueue);
+    SimThreadPool threads(num_queues, 2, serviceQueue);
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -395,7 +395,7 @@ TEST_F(SimThreadsTest, AutoDeleteGlobalEventReleasesSlotZeroLast)
     sync_event.deschedule();
 }
 
-TEST_F(SimThreadsTest, SecondPassOnSameSimulatorThreadsSucceeds)
+TEST_F(SimThreadsTest, SecondPassOnSameSimThreadPoolSucceeds)
 {
     constexpr uint32_t num_queues = 4;
     setupQueues(num_queues);
@@ -406,7 +406,7 @@ TEST_F(SimThreadsTest, SecondPassOnSameSimulatorThreadsSucceeds)
     GlobalSyncEvent sync_event(100, 100, EventBase::Minimum_Pri, 0);
 
     TestExitGlobalEvent exit1(200);
-    SimulatorThreads threads(num_queues, 2, serviceQueue);
+    SimThreadPool threads(num_queues, 2, serviceQueue);
     Event *ev1 = threads.runUntilLocalExit();
     ASSERT_NE(ev1, nullptr);
     EXPECT_EQ(ev1->globalEvent(), &exit1);
@@ -467,7 +467,7 @@ TEST_F(SimThreadsTest, GlobalEventProcessRunsWithMainQueueZeroLocked)
     ScopedReleaseGlobalEvent scoped_release_event(100, &lock_was_held);
     TestExitGlobalEvent exit_event(200);
 
-    SimulatorThreads dispatcher(2, 2, serviceQueue);
+    SimThreadPool dispatcher(2, 2, serviceQueue);
     Event *exit_ev = dispatcher.runUntilLocalExit();
 
     ASSERT_NE(exit_ev, nullptr);

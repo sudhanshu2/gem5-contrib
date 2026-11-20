@@ -57,19 +57,19 @@ namespace gem5
  * (quantum sync, stat dump, debug break, or simulation loop exit), and
  * finishPhase() dispatches the global event once on mainEventQueue[0].
  */
-class SimulatorThreads
+class SimThreadPool
 {
   public:
     using QueueServiceFn = std::function<Event *(EventQueue *)>;
 
-    SimulatorThreads() = delete;
-    SimulatorThreads(const SimulatorThreads &) = delete;
-    SimulatorThreads &operator=(SimulatorThreads &) = delete;
+    SimThreadPool() = delete;
+    SimThreadPool(const SimThreadPool &) = delete;
+    SimThreadPool &operator=(SimThreadPool &) = delete;
 
-    SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
-                     QueueServiceFn service_queue);
+    SimThreadPool(uint32_t num_queues, uint32_t num_threads,
+                  QueueServiceFn service_queue);
 
-    ~SimulatorThreads();
+    ~SimThreadPool();
 
     Event *runUntilLocalExit();
 
@@ -83,7 +83,7 @@ class SimulatorThreads
 
     struct FinishPhase
     {
-        SimulatorThreads *simThreads;
+        SimThreadPool *simThreads;
         void
         operator()() const noexcept
         {

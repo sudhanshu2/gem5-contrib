@@ -48,7 +48,7 @@ namespace gem5
  * at the same tick. It consists of a set of local BarrierEvent
  * instances, one per main event queue, and common state. When a queue
  * reaches a local BarrierEvent, EventQueue::serviceOne() returns the
- * BarrierEvent unprocessed to the simulation loop (SimulatorThreads).
+ * BarrierEvent unprocessed to the simulation loop (SimThreadPool).
  * Once every main event queue has stopped at its local BarrierEvent for
  * the global event, the simulation loop executes the global event's
  * process() method once and releases the local events.
@@ -121,7 +121,7 @@ class BaseGlobalEvent : public EventBase
     /**
      * Dispatch an event returned by EventQueue::serviceOne() in a
      * single-queue simulation loop (such as SST or SystemC co-simulation)
-     * that does not use SimulatorThreads.
+     * that does not use SimThreadPool.
      *
      * If `event` is a BarrierEvent for a BaseGlobalEvent, executes the
      * global event's process() method under mainEventQueue[0]'s lock.

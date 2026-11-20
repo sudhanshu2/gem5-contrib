@@ -39,10 +39,10 @@
 namespace gem5
 {
 
-GlobalFastSyncEvent *SimulatorThreads::sim_quantum_event = nullptr;
+GlobalFastSyncEvent *SimThreadPool::sim_quantum_event = nullptr;
 
-SimulatorThreads::SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
-                                   QueueServiceFn service_queue)
+SimThreadPool::SimThreadPool(uint32_t num_queues, uint32_t num_threads,
+                             QueueServiceFn service_queue)
     : terminate(false),
       numQueues(num_queues),
       numThreads(selectNumThreads(num_queues, num_threads)),
@@ -71,7 +71,7 @@ SimulatorThreads::SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
     }
 }
 
-SimulatorThreads::~SimulatorThreads()
+SimThreadPool::~SimThreadPool()
 {
     // This should only happen after exit has been
     // called. Subordinate event queues should normally (assuming
@@ -84,7 +84,7 @@ SimulatorThreads::~SimulatorThreads()
 }
 
 Event *
-SimulatorThreads::runUntilLocalExit()
+SimThreadPool::runUntilLocalExit()
 {
     assert(!terminate);
 
@@ -125,7 +125,7 @@ SimulatorThreads::runUntilLocalExit()
 }
 
 void
-SimulatorThreads::terminateThreads()
+SimThreadPool::terminateThreads()
 {
     assert(!terminate);
     if (threads.empty()) {
@@ -150,8 +150,8 @@ SimulatorThreads::terminateThreads()
 }
 
 uint32_t
-SimulatorThreads::selectNumThreads(uint32_t num_queues,
-                                   uint32_t requested_threads)
+SimThreadPool::selectNumThreads(uint32_t num_queues,
+                                uint32_t requested_threads)
 {
     assert(num_queues >= 1);
     if (requested_threads > num_queues) {
@@ -167,7 +167,7 @@ SimulatorThreads::selectNumThreads(uint32_t num_queues,
 }
 
 void
-SimulatorThreads::runPhases(uint32_t worker_id)
+SimThreadPool::runPhases(uint32_t worker_id)
 {
     do {
         // Static 1:1 thread-to-queue mapping when numThreads == numQueues.
@@ -195,7 +195,7 @@ SimulatorThreads::runPhases(uint32_t worker_id)
 }
 
 void
-SimulatorThreads::finishPhase() noexcept
+SimThreadPool::finishPhase() noexcept
 {
     // Reset the dynamic-dispatch queue counter for the next phase
     // before phaseBarrier releases the worker threads.
@@ -267,7 +267,7 @@ SimulatorThreads::finishPhase() noexcept
 }
 
 void
-SimulatorThreads::descheduleSimQuantum()
+SimThreadPool::descheduleSimQuantum()
 {
     for (uint32_t i = 0; i < sim_quantum_barriers.size(); i++) {
         Event *sim_quantum_barrier = sim_quantum_barriers[i].data;
@@ -281,7 +281,7 @@ SimulatorThreads::descheduleSimQuantum()
 }
 
 void
-SimulatorThreads::scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq)
+SimThreadPool::scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq)
 {
     curEventQueue(eventq);
 
@@ -294,7 +294,7 @@ SimulatorThreads::scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq)
 }
 
 void
-SimulatorThreads::thread_main(uint32_t worker_id)
+SimThreadPool::thread_main(uint32_t worker_id)
 {
     // Keep SIGINT (ctrl-c) off the subordinate workers so that it is
     // always delivered to the main thread (worker 0), which handles it.

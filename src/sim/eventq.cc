@@ -260,7 +260,7 @@ EventQueue::serviceOne()
             event->trace("executed");
         }
         // Global events are dispatched by the simulation loop
-        // (SimulatorThreads, or BaseGlobalEvent::dispatchSingleQueue() in
+        // (SimThreadPool, or BaseGlobalEvent::dispatchSingleQueue() in
         // single-queue co-simulation loops), which processes them once after
         // every main event queue has stopped at its local BarrierEvent.
         if (event->globalEvent() != nullptr) {
