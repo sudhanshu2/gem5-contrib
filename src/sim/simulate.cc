@@ -71,19 +71,6 @@ GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
 
 static std::unique_ptr<SimulatorThreads> simulatorThreads;
 
-struct DescheduleDeleter
-{
-    void
-    operator()(GlobalSyncEvent *event)
-    {
-        if (!event)
-            return;
-
-        event->deschedule();
-        delete event;
-    }
-};
-
 /** Simulate for num_cycles additional cycles.  If num_cycles is -1
  * (the default), we simulate to MAX_TICKS unless the max ticks has been set
  * via the 'set_max_tick' function prior. This function is exported to Python.
@@ -100,7 +87,6 @@ simulate(Tick num_cycles)
 
     if (global_exit_event)//cleaning last global exit event
         global_exit_event->clean();
-    std::unique_ptr<GlobalSyncEvent, DescheduleDeleter> quantum_event;
 
     DPRINTF(EnteringEventQueue, "Entering event queue @ %d. Starting "
         "simulation...\n", curTick());
@@ -131,24 +117,6 @@ simulate(Tick num_cycles)
     if (numMainEventQueues > 1) {
         fatal_if(simQuantum == 0,
                  "Quantum for multi-eventq simulation not specified");
-
-        // The barrier must run before any other event at the boundary tick.
-        // Otherwise a fast thread executes its events at tick B while a slow
-        // thread is still at B - quantum and can still send a message that
-        // arrives exactly at B (link latency == quantum), so the consumer
-        // would observe it after, rather than before, its own tick-B events.
-        const Tick first_quantum = curTick() + simQuantum;
-        // GlobalSyncEvent::process() keeps nextSimQuantum up to date for
-        // subsequent quanta; the first one of this simulate() call has to be
-        // set here, otherwise the queues keep the value left over from the
-        // previous simulate() call and asynchronously scheduled global
-        // events (e.g. "exit now") may be placed before the first barrier,
-        // where only some threads observe them: a deadlock.
-        for (uint32_t i = 0; i < numMainEventQueues; ++i) {
-            mainEventQueue[i]->setNextSimQuantum(first_quantum);
-        }
-        quantum_event.reset(new GlobalSyncEvent(first_quantum, simQuantum,
-                                                EventBase::Minimum_Pri, 0));
 
         inParallelMode = true;
     }
