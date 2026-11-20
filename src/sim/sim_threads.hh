@@ -30,7 +30,6 @@
 #define __SIM_SIM_THREADS_HH__
 
 #include <atomic>
-#include <barrier>
 #include <cassert>
 #include <csignal>
 #include <cstdint>
@@ -401,7 +400,7 @@ class SimulatorThreads
     Event *phaseExitEvent;
     bool phaseExit;
     std::vector<std::thread> threads;
-    std::barrier<> barrier;
+    Barrier<> barrier;
     Barrier<FinishPhase> phaseBarrier;
 
     // queues schedule their own sim quantum if this flag is set

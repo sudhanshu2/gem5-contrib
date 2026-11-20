@@ -70,11 +70,23 @@ namespace gem5
  * function runs on the last arriving thread before any thread is
  * released; the barrier is reusable.
  */
-template <class CompletionFunction> class Barrier
+
+struct NoOpBarrierCompletion
+{
+    void
+    operator()() const noexcept
+    {}
+};
+
+template <typename CompletionFunction = NoOpBarrierCompletion> class Barrier
 {
   public:
     /** Spin budget before a waiter parks (100 microseconds). */
     static constexpr std::chrono::nanoseconds defaultSpinBudget{100000};
+
+    explicit Barrier(uint32_t expected)
+        : Barrier(expected, {}, defaultSpinBudget)
+    {}
 
     /** Barrier for `expected` threads with the default spin budget. */
     Barrier(uint32_t expected, CompletionFunction completion)
