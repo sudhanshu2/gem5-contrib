@@ -34,12 +34,23 @@
 #include <thread>
 #include <vector>
 
+#include "base/pollevent.hh"
+#include "base/remote_gdb.hh"
 #include "sim/eventq.hh"
 #include "sim/global_event.hh"
 #include "sim/sim_threads.hh"
 
 namespace gem5
 {
+
+// GlobalSyncEvent::process() (global_event.cc) calls
+// BaseRemoteGDB::service(), and including remote_gdb.hh instantiates the
+// global PollQueue. Linking the real remote_gdb.cc/pollevent.cc would pull
+// in most of gem5, so provide no-op stubs for this unit test.
+void BaseRemoteGDB::service() {}
+PollQueue::PollQueue() {}
+PollQueue::~PollQueue() {}
+
 namespace
 {
 
