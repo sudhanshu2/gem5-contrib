@@ -29,6 +29,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -43,14 +44,21 @@ namespace gem5
 namespace
 {
 
+std::function<void(EventQueue *)> doSimLoopHook;
+
+} // anonymous namespace
+
 /**
  * Service a single event queue until it stops at a global event's
  * BarrierEvent (or runs out of events). Mirrors what doSimLoop() does in
  * simulate.cc without the main-queue async event handling.
  */
 Event *
-serviceQueue(EventQueue *eventq)
+doSimLoop(EventQueue *eventq)
 {
+    if (doSimLoopHook) {
+        doSimLoopHook(eventq);
+    }
     curEventQueue(eventq);
     {
         std::lock_guard<EventQueue> lock(*eventq);
@@ -63,6 +71,9 @@ serviceQueue(EventQueue *eventq)
     }
     return nullptr;
 }
+
+namespace
+{
 
 class SimThreadsTest : public ::testing::Test
 {
@@ -88,6 +99,7 @@ class SimThreadsTest : public ::testing::Test
         mainEventQueue.clear();
         numMainEventQueues = 0;
         numSimThreads = 0;
+        doSimLoopHook = nullptr;
         curEventQueue(nullptr);
     }
 
@@ -197,7 +209,7 @@ TEST_F(SimThreadsTest, DynamicDispatchProcessesGlobalEventsOnce)
     TestExitGlobalEvent exit_event(400);
 
     numSimThreads = num_threads;
-    SimulatorThreads threads(serviceQueue);
+    SimulatorThreads threads();
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -228,7 +240,7 @@ TEST_F(SimThreadsTest, StaticMappingBindsWorkerToQueue)
     std::mutex record_mutex;
     std::vector<std::vector<std::thread::id>> queue_threads(num_queues);
 
-    auto service_fn = [&](EventQueue *eq) -> Event * {
+    doSimLoopHook = [&](EventQueue *eq) {
         uint32_t q_idx = 0;
         for (uint32_t i = 0; i < num_queues; ++i) {
             if (mainEventQueue[i] == eq) {
@@ -240,13 +252,12 @@ TEST_F(SimThreadsTest, StaticMappingBindsWorkerToQueue)
             std::lock_guard<std::mutex> guard(record_mutex);
             queue_threads[q_idx].push_back(std::this_thread::get_id());
         }
-        return serviceQueue(eq);
     };
 
     const std::thread::id main_tid = std::this_thread::get_id();
     // numSimThreads == 0 selects the default N == M static mapping.
     numSimThreads = 0;
-    SimulatorThreads threads(service_fn);
+    SimulatorThreads threads();
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -285,7 +296,7 @@ TEST_F(SimThreadsTest, GlobalExitEventEndsPassAndIsReturnedUnreleased)
     }
 
     numSimThreads = 2;
-    SimulatorThreads threads(serviceQueue);
+    SimulatorThreads threads();
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -377,7 +388,7 @@ TEST_F(SimThreadsTest, AutoDeleteGlobalEventReleasesSlotZeroLast)
     TestExitGlobalEvent exit_event(200);
 
     numSimThreads = 2;
-    SimulatorThreads threads(serviceQueue);
+    SimulatorThreads threads();
     Event *local_exit = threads.runUntilLocalExit();
 
     ASSERT_NE(local_exit, nullptr);
@@ -401,7 +412,7 @@ TEST_F(SimThreadsTest, SecondPassOnSameSimulatorThreadsSucceeds)
 
     TestExitGlobalEvent exit1(200);
     numSimThreads = 2;
-    SimulatorThreads threads(serviceQueue);
+    SimulatorThreads threads();
     Event *ev1 = threads.runUntilLocalExit();
     ASSERT_NE(ev1, nullptr);
     EXPECT_EQ(ev1->globalEvent(), &exit1);
@@ -463,7 +474,7 @@ TEST_F(SimThreadsTest, GlobalEventProcessRunsWithMainQueueZeroLocked)
     TestExitGlobalEvent exit_event(200);
 
     numSimThreads = 2;
-    SimulatorThreads dispatcher(serviceQueue);
+    SimulatorThreads dispatcher();
     Event *exit_ev = dispatcher.runUntilLocalExit();
 
     ASSERT_NE(exit_ev, nullptr);

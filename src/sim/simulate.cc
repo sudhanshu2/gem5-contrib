@@ -64,9 +64,6 @@
 namespace gem5
 {
 
-//! forward declaration
-Event *doSimLoop(EventQueue *);
-
 GlobalSimLoopExitEvent *simulate_limit_event = nullptr;
 
 static std::unique_ptr<SimulatorThreads> simulatorThreads;
@@ -92,7 +89,7 @@ simulate(Tick num_cycles)
         "simulation...\n", curTick());
 
     if (!simulatorThreads) {
-        simulatorThreads.reset(new SimulatorThreads(doSimLoop));
+        simulatorThreads.reset(new SimulatorThreads());
     }
 
     if (!simulate_limit_event) {

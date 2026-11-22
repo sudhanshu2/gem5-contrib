@@ -40,10 +40,9 @@ namespace gem5
 
 GlobalFastSyncEvent *SimulatorThreads::sim_quantum_event = nullptr;
 
-SimulatorThreads::SimulatorThreads(QueueServiceFn service_queue)
+SimulatorThreads::SimulatorThreads()
     : terminate(false),
       numThreads(selectNumThreads()),
-      serviceQueue(std::move(service_queue)),
       nextQueue(0),
       phaseEvents(numMainEventQueues, nullptr),
       phaseExitEvent(nullptr),
@@ -174,7 +173,7 @@ SimulatorThreads::runPhases(uint32_t worker_id)
         if (numThreads == numMainEventQueues) {
             EventQueue *eventq = mainEventQueue[worker_id];
             scheduleSimQuantum(worker_id, eventq);
-            phaseEvents[worker_id] = serviceQueue(eventq);
+            phaseEvents[worker_id] = doSimLoop(eventq);
         } else {
             while (true) {
                 uint32_t q = nextQueue++;
@@ -183,7 +182,7 @@ SimulatorThreads::runPhases(uint32_t worker_id)
                 }
                 EventQueue *eventq = mainEventQueue[q];
                 scheduleSimQuantum(q, eventq);
-                phaseEvents[q] = serviceQueue(eventq);
+                phaseEvents[q] = doSimLoop(eventq);
             }
         }
         phaseBarrier.arrive_and_wait();

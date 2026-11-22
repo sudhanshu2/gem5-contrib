@@ -31,7 +31,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <thread>
 #include <vector>
 
@@ -41,6 +40,8 @@
 
 namespace gem5
 {
+
+Event *doSimLoop(EventQueue *eventq);
 
 /**
  * Coordinates simulation execution across M main event queues using a pool of
@@ -61,11 +62,11 @@ class SimulatorThreads
   public:
     using QueueServiceFn = std::function<Event *(EventQueue *)>;
 
-    SimulatorThreads() = delete;
+    SimulatorThreads();
+
     SimulatorThreads(const SimulatorThreads &) = delete;
     SimulatorThreads &operator=(SimulatorThreads &) = delete;
 
-    explicit SimulatorThreads(QueueServiceFn service_queue);
 
     ~SimulatorThreads();
 
@@ -136,7 +137,6 @@ class SimulatorThreads
 
     std::atomic<bool> terminate;
     uint32_t numThreads;
-    QueueServiceFn serviceQueue;
     std::atomic<uint32_t> nextQueue;
     std::vector<Event *> phaseEvents;
     Event *phaseExitEvent;
