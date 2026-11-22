@@ -65,8 +65,7 @@ class SimulatorThreads
     SimulatorThreads(const SimulatorThreads &) = delete;
     SimulatorThreads &operator=(SimulatorThreads &) = delete;
 
-    SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
-                     QueueServiceFn service_queue);
+    explicit SimulatorThreads(QueueServiceFn service_queue);
 
     ~SimulatorThreads();
 
@@ -90,8 +89,7 @@ class SimulatorThreads
         }
     };
 
-    static uint32_t selectNumThreads(uint32_t num_queues,
-                                     uint32_t requested_threads);
+    static uint32_t selectNumThreads();
 
     /**
      * Advance all main event queues through one or more global-event
@@ -137,7 +135,6 @@ class SimulatorThreads
     void thread_main(uint32_t worker_id);
 
     std::atomic<bool> terminate;
-    uint32_t numQueues;
     uint32_t numThreads;
     QueueServiceFn serviceQueue;
     std::atomic<uint32_t> nextQueue;

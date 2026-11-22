@@ -40,14 +40,12 @@ namespace gem5
 
 GlobalFastSyncEvent *SimulatorThreads::sim_quantum_event = nullptr;
 
-SimulatorThreads::SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
-                                   QueueServiceFn service_queue)
+SimulatorThreads::SimulatorThreads(QueueServiceFn service_queue)
     : terminate(false),
-      numQueues(num_queues),
-      numThreads(selectNumThreads(num_queues, num_threads)),
+      numThreads(selectNumThreads()),
       serviceQueue(std::move(service_queue)),
       nextQueue(0),
-      phaseEvents(num_queues, nullptr),
+      phaseEvents(numMainEventQueues, nullptr),
       phaseExitEvent(nullptr),
       phaseExit(false),
       barrier(numThreads),
@@ -56,14 +54,14 @@ SimulatorThreads::SimulatorThreads(uint32_t num_queues, uint32_t num_threads,
     threads.reserve(numThreads - 1);
 
     // sim quantum is only needed a non-zero quantum only
-    use_sim_quantum = num_queues > 1 && simQuantum > 0;
+    use_sim_quantum = numMainEventQueues > 1 && simQuantum > 0;
 
     if (use_sim_quantum) {
         if (sim_quantum_event == nullptr) {
             sim_quantum_event =
                 new GlobalFastSyncEvent(EventBase::Minimum_Pri, 0);
         }
-        for (uint32_t i = 0; i < num_queues; i++) {
+        for (uint32_t i = 0; i < numMainEventQueues; i++) {
             sim_quantum_barriers.emplace_back(
                 sim_quantum_event->getBarrierEvent(i));
         }
@@ -149,20 +147,19 @@ SimulatorThreads::terminateThreads()
 }
 
 uint32_t
-SimulatorThreads::selectNumThreads(uint32_t num_queues,
-                                   uint32_t requested_threads)
+SimulatorThreads::selectNumThreads()
 {
-    assert(num_queues >= 1);
-    if (requested_threads > num_queues) {
+    assert(numMainEventQueues >= 1);
+    if (numSimThreads > numMainEventQueues) {
         warn("Requested %u simulator threads for %u main event queues; "
              "clamping to %u\n",
-             requested_threads, num_queues, num_queues);
-        return num_queues;
+             numSimThreads, numMainEventQueues, numMainEventQueues);
+        return numMainEventQueues;
     }
-    if (requested_threads == 0) {
-        return num_queues;
+    if (numSimThreads == 0) {
+        return numMainEventQueues;
     }
-    return requested_threads;
+    return numSimThreads;
 }
 
 void
@@ -174,14 +171,14 @@ SimulatorThreads::runPhases(uint32_t worker_id)
         // per-thread perf counters, and timers to the host OS thread that
         // services the CPU's event queue) to always keep the same thread
         // on the same queue across phases.
-        if (numThreads == numQueues) {
+        if (numThreads == numMainEventQueues) {
             EventQueue *eventq = mainEventQueue[worker_id];
             scheduleSimQuantum(worker_id, eventq);
             phaseEvents[worker_id] = serviceQueue(eventq);
         } else {
             while (true) {
                 uint32_t q = nextQueue++;
-                if (q >= numQueues) {
+                if (q >= numMainEventQueues) {
                     break;
                 }
                 EventQueue *eventq = mainEventQueue[q];
@@ -221,7 +218,7 @@ SimulatorThreads::finishPhase() noexcept
     panic_if(!global_event, "Queue 0 stopped at non-global event '%s' (%s)",
              first->name().c_str(), first->description());
 #ifndef NDEBUG
-    for (uint32_t i = 1; i < numQueues; ++i) {
+    for (uint32_t i = 1; i < numMainEventQueues; ++i) {
         Event *ev = phaseEvents[i];
         panic_if(!ev || ev->globalEvent() != global_event,
                  "Queue %u stopped at '%s' (%s) instead of global event "
@@ -259,7 +256,7 @@ SimulatorThreads::finishPhase() noexcept
         // slot 0 (whose BarrierEvent::~BarrierEvent deletes an
         // AutoDelete BaseGlobalEvent) runs after slots 1..numQueues-1
         // have finished accessing their BarrierEvents.
-        for (uint32_t i = numQueues; i-- > 0;) {
+        for (uint32_t i = numMainEventQueues; i-- > 0;) {
             BaseGlobalEvent::releaseBarrierEvent(phaseEvents[i]);
         }
     }

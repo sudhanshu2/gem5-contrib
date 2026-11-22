@@ -92,8 +92,7 @@ simulate(Tick num_cycles)
         "simulation...\n", curTick());
 
     if (!simulatorThreads) {
-        simulatorThreads.reset(new SimulatorThreads(numMainEventQueues,
-                                                    numSimThreads, doSimLoop));
+        simulatorThreads.reset(new SimulatorThreads(doSimLoop));
     }
 
     if (!simulate_limit_event) {
