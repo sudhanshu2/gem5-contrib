@@ -133,7 +133,13 @@ class SimulatorThreads
      * phase-by-phase alongside worker 0 until a global exit event is
      * reached, and synchronizes at barrier before returning to idle.
      */
-    void thread_main(uint32_t worker_id);
+    void subordinateThreadMain(bool dynamic, uint32_t eventq_idx);
+
+    void runStatic(uint32_t eventq_idx);
+
+    void runSubordinateDynamic();
+
+    void runMainDynamic();
 
     std::atomic<bool> terminate;
     uint32_t numThreads;

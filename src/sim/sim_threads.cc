@@ -90,16 +90,19 @@ SimulatorThreads::runUntilLocalExit()
         schedule_sim_quantum_event = true;
     }
 
+    bool dynamic = numThreads != numMainEventQueues;
+
     // Start subordinate threads if needed.
     if (threads.empty() && numThreads > 1) {
         // The main thread (the one running Python) is worker 0 and
         // participates alongside numThreads - 1 subordinate workers.
         for (uint32_t i = 1; i < numThreads; i++) {
-            threads.emplace_back([this, i]() { thread_main(i); });
+            threads.emplace_back(
+                [this, dynamic, i]() { subordinateThreadMain(dynamic, i); });
         }
     }
 
-    nextQueue = 0;
+    nextQueue = 1;
     phaseExitEvent = nullptr;
     phaseExit = false;
 
@@ -108,7 +111,11 @@ SimulatorThreads::runUntilLocalExit()
     // The arrival of the main thread here satisfies the barrier and
     // starts another simulation pass across the worker pool.
     barrier.arrive_and_wait();
-    runPhases(0);
+    if (!dynamic) {
+        runStatic(0);
+    } else {
+        runMainDynamic();
+    }
     barrier.arrive_and_wait();
 
     // Do not leave quantum barriers scheduled between simulate()
@@ -162,39 +169,11 @@ SimulatorThreads::selectNumThreads()
 }
 
 void
-SimulatorThreads::runPhases(uint32_t worker_id)
-{
-    do {
-        // Static 1:1 thread-to-queue mapping when numThreads == numQueues.
-        // This is required for KVM CPUs (which bind vCPU signal delivery,
-        // per-thread perf counters, and timers to the host OS thread that
-        // services the CPU's event queue) to always keep the same thread
-        // on the same queue across phases.
-        if (numThreads == numMainEventQueues) {
-            EventQueue *eventq = mainEventQueue[worker_id];
-            scheduleSimQuantum(worker_id, eventq);
-            phaseEvents[worker_id] = doSimLoop(eventq);
-        } else {
-            while (true) {
-                uint32_t q = nextQueue++;
-                if (q >= numMainEventQueues) {
-                    break;
-                }
-                EventQueue *eventq = mainEventQueue[q];
-                scheduleSimQuantum(q, eventq);
-                phaseEvents[q] = doSimLoop(eventq);
-            }
-        }
-        phaseBarrier.arrive_and_wait();
-    } while (!phaseExit);
-}
-
-void
 SimulatorThreads::finishPhase() noexcept
 {
     // Reset the dynamic-dispatch queue counter for the next phase
     // before phaseBarrier releases the worker threads.
-    nextQueue = 0;
+    nextQueue = 1;
 
     // schedule sim quantum event only if needed
     schedule_sim_quantum_event = false;
@@ -289,7 +268,7 @@ SimulatorThreads::scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq)
 }
 
 void
-SimulatorThreads::thread_main(uint32_t worker_id)
+SimulatorThreads::subordinateThreadMain(bool dynamic, uint32_t eventq_idx)
 {
     // Keep SIGINT (ctrl-c) off the subordinate workers so that it is
     // always delivered to the main thread (worker 0), which handles it.
@@ -301,8 +280,58 @@ SimulatorThreads::thread_main(uint32_t worker_id)
             unblockSignal(SIGINT);
             break;
         }
-        runPhases(worker_id);
+        if (!dynamic) {
+            panic_if(eventq_idx == 0,
+                     "cannot execute eventq 0 on subordinate threads");
+            runStatic(eventq_idx);
+        } else {
+            runSubordinateDynamic();
+        }
         barrier.arrive_and_wait();
+    }
+}
+
+void
+SimulatorThreads::runStatic(uint32_t eventq_idx)
+{
+    EventQueue *eventq = mainEventQueue[eventq_idx];
+    while (!phaseExit) {
+        scheduleSimQuantum(eventq_idx, eventq);
+        phaseEvents[eventq_idx] = doSimLoop(eventq);
+        phaseBarrier.arrive_and_wait();
+    }
+}
+
+void
+SimulatorThreads::runSubordinateDynamic()
+{
+    while (!phaseExit) {
+        uint32_t eventq_idx =
+            nextQueue.fetch_add(1, std::memory_order_relaxed);
+        if (eventq_idx >= numMainEventQueues) {
+            phaseBarrier.arrive_and_wait();
+        } else {
+            EventQueue *eventq = mainEventQueue[eventq_idx];
+            scheduleSimQuantum(eventq_idx, eventq);
+            phaseEvents[eventq_idx] = doSimLoop(eventq);
+        }
+    }
+}
+
+void
+SimulatorThreads::runMainDynamic()
+{
+    uint32_t eventq_idx = 0;
+    while (!phaseExit) {
+        if (eventq_idx >= numMainEventQueues) {
+            phaseBarrier.arrive_and_wait();
+            eventq_idx = 0;
+        } else {
+            EventQueue *eventq = mainEventQueue[eventq_idx];
+            scheduleSimQuantum(eventq_idx, eventq);
+            phaseEvents[eventq_idx] = doSimLoop(eventq);
+            eventq_idx = nextQueue.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 }
 
