@@ -36,32 +36,38 @@
 
 #include "base/barrier.hh"
 #include "sim/eventq.hh"
-#include "sim/global_event.hh"
 
 namespace gem5
 {
+
+class GlobalFastSyncEvent;
 
 Event *doSimLoop(EventQueue *eventq);
 
 /**
  * Coordinates simulation execution across M main event queues using a pool of
- * N <= M host worker threads (the calling thread as worker 0 plus N - 1
+ * N <= M host worker threads (the gem5 main thread plus N - 1
  * subordinate worker threads).
  *
- * When N == M (the default when Root.num_threads is 0 or >= M), worker w
- * statically services mainEventQueue[w] in every phase, preserving the fixed
- * thread-to-queue affinity required by KVM CPUs and host cache locality.
- * When N < M, workers dynamically self-schedule queues from [0, M) off the
- * shared atomic index nextQueue in each phase. In both modes, all workers
- * synchronize at phaseBarrier whenever the queues reach a global event
- * (quantum sync, stat dump, debug break, or simulation loop exit), and
- * finishPhase() dispatches the global event once on mainEventQueue[0].
+ * There are two potential execution scenarios:
+ *
+ * N = M
+ * Threads are mapped to a single event queue when SimulatorThreads is
+ * constructed.
+ *
+ * N < M
+ * Threads dynamically self-schedule event queues. The main thread always
+ * executes event queue 0 to ensure a single thread controls the Python GIL.
+ *
+ * In both modes, all threads synchronize at phaseBarrier, also called a
+ * simulation quantum.
+ *
+ * Note that KVM requires a static thread-to-queue affinity, and so N should be
+ * equal to M.
  */
 class SimulatorThreads
 {
   public:
-    using QueueServiceFn = std::function<Event *(EventQueue *)>;
-
     SimulatorThreads();
 
     SimulatorThreads(const SimulatorThreads &) = delete;
@@ -75,11 +81,6 @@ class SimulatorThreads
     void terminateThreads();
 
   protected:
-    template <typename T> struct alignas(64) CacheAlignedData
-    {
-        T data;
-    };
-
     struct FinishPhase
     {
         SimulatorThreads *simThreads;
@@ -91,26 +92,6 @@ class SimulatorThreads
     };
 
     static uint32_t selectNumThreads();
-
-    /**
-     * Advance all main event queues through one or more global-event
-     * phases (quanta, stat dumps, debug breaks, or exits) until a global
-     * exit event or async_exception terminates the simulation pass.
-     *
-     * When numThreads == numQueues, worker_id statically services
-     * mainEventQueue[worker_id] in every phase. When numThreads < numQueues,
-     * the N worker threads dynamically self-schedule queues from
-     * [0, numQueues) off the shared atomic counter nextQueue. For each
-     * queue q, serviceQueue() processes events until EventQueue::serviceOne()
-     * encounters a BaseGlobalEvent::BarrierEvent and returns it unprocessed,
-     * storing that barrier event in phaseEvents[q]. Once all numQueues
-     * queues have stopped at their barrier event for the phase, all N
-     * worker threads synchronize at phaseBarrier, which invokes
-     * finishPhase() on the last arriving thread before releasing the
-     * workers into the next phase (or exiting the loop if phaseExit is
-     * set).
-     */
-    void runPhases(uint32_t worker_id);
 
     /**
      * Completion function for phaseBarrier. Runs single-threaded on the
@@ -125,7 +106,7 @@ class SimulatorThreads
     void descheduleSimQuantum();
 
     // non-async schedule sim quantum on eventq
-    void scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq);
+    void scheduleSimQuantum(uint32_t eventq_idx);
 
     /**
      * The main function for all subordinate worker threads (workers
@@ -135,37 +116,54 @@ class SimulatorThreads
      */
     void subordinateThreadMain(bool dynamic, uint32_t eventq_idx);
 
+    /**
+     * Static subordinate thread execution that only processes events on
+     * eventq_idx
+     */
     void runStatic(uint32_t eventq_idx);
 
+    /**
+     * The subordinate self-schedules threads (except event queue 0)
+     */
     void runSubordinateDynamic();
 
+    /**
+     * The main thread self-schedules threads but also starts by processing
+     * queue 0
+     */
     void runMainDynamic();
 
     std::atomic<bool> terminate;
-    uint32_t numThreads;
-    std::atomic<uint32_t> nextQueue;
-    std::vector<Event *> phaseEvents;
-    Event *phaseExitEvent;
     bool phaseExit;
+
+    // Number of threads may be different from numSimThreads
+    uint32_t numThreads;
+
+    std::atomic<uint32_t> nextQueue;
+
     std::vector<std::thread> threads;
+
+    // This barrier helps persist threads through multiple runUntilLocalExit
+    // calls
     Barrier<> barrier;
+
+    // A phase is separated by global or exit events
     Barrier<FinishPhase> phaseBarrier;
 
-    // queues schedule their own sim quantum if this flag is set
-    bool schedule_sim_quantum_event = false;
+    // Return value of doSimLoop() for all event queues
+    std::vector<Event *> phaseEvents;
 
-    // true if this simulation uses a sim quantum (more than one event
-    // queue and a non-zero simQuantum)
-    bool use_sim_quantum = false;
+    // Queues schedule their own sim quantum if this flag is set
+    bool scheduleSimQuantumEvent = false;
 
-    // global event whose barriers are used for sim quantum
-    static GlobalFastSyncEvent *sim_quantum_event;
+    // Global event whose barriers are used for sim quantum
+    GlobalFastSyncEvent *simQuantumEvent = nullptr;
 
-    // shared variable for the next sim quantum tick
-    Tick next_sim_quantum = 0;
+    // Shared variable for the next sim quantum tick
+    Tick nextSimQuantum = 0;
 
-    // barriers in the sim quantum global event, one per event queue
-    std::vector<CacheAlignedData<Event *>> sim_quantum_barriers;
+    // Barriers in the sim quantum global event, one per event queue
+    std::vector<Event *> simQuantumBarriers;
 };
 
 } // namespace gem5

@@ -30,40 +30,30 @@
 
 #include <cassert>
 #include <mutex>
-#include <utility>
 
 #include "base/logging.hh"
 #include "base/thread.hh"
+#include "sim/global_event.hh"
 
 namespace gem5
 {
 
-GlobalFastSyncEvent *SimulatorThreads::sim_quantum_event = nullptr;
-
 SimulatorThreads::SimulatorThreads()
     : terminate(false),
-      numThreads(selectNumThreads()),
-      nextQueue(0),
-      phaseEvents(numMainEventQueues, nullptr),
-      phaseExitEvent(nullptr),
       phaseExit(false),
+      numThreads(selectNumThreads()),
+      nextQueue(1),
       barrier(numThreads),
       phaseBarrier(numThreads, FinishPhase{this})
 {
     threads.reserve(numThreads - 1);
 
-    // sim quantum is only needed a non-zero quantum only
-    use_sim_quantum = numMainEventQueues > 1 && simQuantum > 0;
-
-    if (use_sim_quantum) {
-        if (sim_quantum_event == nullptr) {
-            sim_quantum_event =
-                new GlobalFastSyncEvent(EventBase::Minimum_Pri, 0);
-        }
-        for (uint32_t i = 0; i < numMainEventQueues; i++) {
-            sim_quantum_barriers.emplace_back(
-                sim_quantum_event->getBarrierEvent(i));
-        }
+    // Initialize sim quantum (sync) event and store its barrier events
+    simQuantumEvent = new GlobalFastSyncEvent(EventBase::Minimum_Pri, 0);
+    simQuantumBarriers.reserve(numMainEventQueues);
+    phaseEvents.assign(numMainEventQueues, nullptr);
+    for (uint32_t i = 0; i < numMainEventQueues; i++) {
+        simQuantumBarriers.push_back(simQuantumEvent->getBarrierEvent(i));
     }
 }
 
@@ -77,17 +67,18 @@ SimulatorThreads::~SimulatorThreads()
     // N.B.: Not terminating here would make it impossible to
     // safely destroy the barrier.
     terminateThreads();
+    delete simQuantumEvent;
 }
 
 Event *
 SimulatorThreads::runUntilLocalExit()
 {
-    assert(!terminate);
+    assert(!terminate.load(std::memory_order_relaxed));
 
-    next_sim_quantum = curTick() + simQuantum;
+    nextSimQuantum = curTick() + simQuantum;
 
-    if (use_sim_quantum) {
-        schedule_sim_quantum_event = true;
+    if (numMainEventQueues > 1 && simQuantum > 0) {
+        scheduleSimQuantumEvent = true;
     }
 
     bool dynamic = numThreads != numMainEventQueues;
@@ -102,8 +93,8 @@ SimulatorThreads::runUntilLocalExit()
         }
     }
 
+    // Queue 0 is always processed by the main thread
     nextQueue = 1;
-    phaseExitEvent = nullptr;
     phaseExit = false;
 
     // This method is called from the main thread. All subordinate
@@ -124,13 +115,13 @@ SimulatorThreads::runUntilLocalExit()
     descheduleSimQuantum();
 
     curEventQueue(mainEventQueue[0]);
-    return phaseExitEvent;
+    return phaseEvents[0];
 }
 
 void
 SimulatorThreads::terminateThreads()
 {
-    assert(!terminate);
+    assert(!terminate.load(std::memory_order_relaxed));
     if (threads.empty()) {
         return;
     }
@@ -140,7 +131,7 @@ SimulatorThreads::terminateThreads()
      * means that the helper threads will be waiting on the
      * barrier. Tell the helper threads to exit and release them from
      * their barrier. */
-    terminate = true;
+    terminate.store(true, std::memory_order_relaxed);
     barrier.arrive_and_wait();
 
     /* Wait for all of the threads to terminate */
@@ -148,7 +139,7 @@ SimulatorThreads::terminateThreads()
         t.join();
     }
 
-    terminate = false;
+    terminate.store(false, std::memory_order_relaxed);
     threads.clear();
 }
 
@@ -176,7 +167,7 @@ SimulatorThreads::finishPhase() noexcept
     nextQueue = 1;
 
     // schedule sim quantum event only if needed
-    schedule_sim_quantum_event = false;
+    scheduleSimQuantumEvent = false;
 
     // doSimLoop() only returns nullptr when mainEventQueue[0] exits
     // early due to an async_exception (e.g., a Python exception).
@@ -184,7 +175,6 @@ SimulatorThreads::finishPhase() noexcept
     // simulate().
     Event *first = phaseEvents[0];
     if (!first) {
-        phaseExitEvent = nullptr;
         phaseExit = true;
         return;
     }
@@ -207,8 +197,8 @@ SimulatorThreads::finishPhase() noexcept
 #endif
 
     if (global_event->isSimQuantum()) {
-        next_sim_quantum = first->when() + simQuantum;
-        schedule_sim_quantum_event = true;
+        nextSimQuantum = first->when() + simQuantum;
+        scheduleSimQuantumEvent = true;
         return;
     }
 
@@ -227,7 +217,6 @@ SimulatorThreads::finishPhase() noexcept
     if (first->isExitEvent()) {
         // Retain the exit event for simulate() to inspect and return;
         // simulate() cleans it up on the next entry.
-        phaseExitEvent = first;
         phaseExit = true;
     } else {
         // Release each queue's local BarrierEvent in reverse order so
@@ -243,27 +232,31 @@ SimulatorThreads::finishPhase() noexcept
 void
 SimulatorThreads::descheduleSimQuantum()
 {
-    for (uint32_t i = 0; i < sim_quantum_barriers.size(); i++) {
-        Event *sim_quantum_barrier = sim_quantum_barriers[i].data;
-        if (sim_quantum_barrier->scheduled()) {
+    for (uint32_t i = 0; i < simQuantumBarriers.size(); i++) {
+        Event *simQuantumBarrier = simQuantumBarriers[i];
+        // Descheduling simQuantumBarrier event preserves a clean state
+        if (simQuantumBarrier->scheduled()) {
             EventQueue *eventq = mainEventQueue[i];
             curEventQueue(eventq);
             std::lock_guard<EventQueue> lock(*eventq);
-            eventq->deschedule(sim_quantum_barrier);
+            eventq->deschedule(simQuantumBarrier);
         }
     }
 }
 
 void
-SimulatorThreads::scheduleSimQuantum(uint32_t eventq_idx, EventQueue *eventq)
+SimulatorThreads::scheduleSimQuantum(uint32_t eventq_idx)
 {
+    EventQueue *eventq = mainEventQueue[eventq_idx];
+    // This is executed frequently and so should be fast
     curEventQueue(eventq);
-
-    if (schedule_sim_quantum_event) {
-        Event *sim_quantum_barrier = sim_quantum_barriers[eventq_idx].data;
-        eventq->setNextSimQuantum(next_sim_quantum);
+    if (scheduleSimQuantumEvent) {
+        Event *simQuantumBarrier = simQuantumBarriers[eventq_idx];
+        eventq->setNextSimQuantum(nextSimQuantum);
+        // schedule() calls insert() without lock while other threads can also
+        // be scheduling events to this queue using ScopedMigration
         std::lock_guard<EventQueue> lock(*eventq);
-        eventq->schedule(sim_quantum_barrier, next_sim_quantum);
+        eventq->schedule(simQuantumBarrier, nextSimQuantum);
     }
 }
 
@@ -276,7 +269,7 @@ SimulatorThreads::subordinateThreadMain(bool dynamic, uint32_t eventq_idx)
 
     while (true) {
         barrier.arrive_and_wait();
-        if (terminate) {
+        if (terminate.load(std::memory_order_relaxed)) {
             unblockSignal(SIGINT);
             break;
         }
@@ -296,7 +289,7 @@ SimulatorThreads::runStatic(uint32_t eventq_idx)
 {
     EventQueue *eventq = mainEventQueue[eventq_idx];
     while (!phaseExit) {
-        scheduleSimQuantum(eventq_idx, eventq);
+        scheduleSimQuantum(eventq_idx);
         phaseEvents[eventq_idx] = doSimLoop(eventq);
         phaseBarrier.arrive_and_wait();
     }
@@ -312,7 +305,7 @@ SimulatorThreads::runSubordinateDynamic()
             phaseBarrier.arrive_and_wait();
         } else {
             EventQueue *eventq = mainEventQueue[eventq_idx];
-            scheduleSimQuantum(eventq_idx, eventq);
+            scheduleSimQuantum(eventq_idx);
             phaseEvents[eventq_idx] = doSimLoop(eventq);
         }
     }
@@ -328,7 +321,7 @@ SimulatorThreads::runMainDynamic()
             eventq_idx = 0;
         } else {
             EventQueue *eventq = mainEventQueue[eventq_idx];
-            scheduleSimQuantum(eventq_idx, eventq);
+            scheduleSimQuantum(eventq_idx);
             phaseEvents[eventq_idx] = doSimLoop(eventq);
             eventq_idx = nextQueue.fetch_add(1, std::memory_order_relaxed);
         }
